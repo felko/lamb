@@ -1,0 +1,69 @@
+use crate::surface::lexer::{Token, Error};
+use crate::surface::syntax::{Expr, Type, Binding};
+
+grammar<'src>(
+    errors: &mut Vec<Error>
+);
+
+extern {
+    type Error = Error;
+    type Location = usize;
+
+    enum Token<'src> {
+        "(" => Token::LParen,
+        ")" => Token::RParen,
+        ":" => Token::Colon,
+        "=" => Token::Equal,
+        "=>" => Token::Arrow,
+        "+" => Token::Plus,
+        "fun" => Token::Fun,
+        "let" => Token::Let,
+        "in" => Token::In,
+        "Int" => Token::Int,
+        Identifier => Token::Identifier(<&'src str>),
+        Number => Token::Number(<i32>),
+    }
+}
+
+Box<T>: Box<T> = T => Box::new(<>);
+
+Type: Type<'src> = {
+    "Int" => Type::Int,
+    <name: Identifier> => Type::Var(name),
+}
+
+Annotation: Type<'src> = {
+    ":" <t: Type> => t
+}
+
+Binding: Binding<'src> = {
+    <name: Identifier> => Binding::Inferred(name),
+    "(" <name: Identifier> <ann: (Annotation)?> ")" => match ann {
+        Some(t) => Binding::Typed(name, t),
+        None => Binding::Inferred(name),
+    },
+}
+
+pub Expr = Expr0;
+
+Expr0: Expr<'src> = {
+    "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
+    "let" <name: Identifier> <params: (Binding)*> <ann: (Annotation)?> "=" <value: Box<Expr0>> "in" <body: Box<Expr0>> => Expr::Let(name, params, ann, value, body),
+    <Expr1>
+}
+
+Expr1: Expr<'src> = {
+    <lhs: Box<Expr1>> "+" <rhs: Box<Expr2>> => Expr::Add(lhs, rhs),
+    <Expr2>
+}
+
+Expr2: Expr<'src> = {
+    <callee: Box<Expr3>> <args: (Expr3)+> => Expr::App(callee, args),
+    <Expr3>
+}
+
+Expr3: Expr<'src> = {
+    Number => Expr::Lit(<>),
+    Identifier => Expr::Var(<>),
+    "(" <Expr0> ")" => <>
+}

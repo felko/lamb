@@ -2,5 +2,13 @@
 name = "lamb"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+lalrpop = { version = "0.19.8", default-features = false }
 
 [dependencies]
+logos = "0.12.1"
+lalrpop-util = "0.19.8"
+bumpalo = "3.10.0"
+clap = { version = "3.2.5", features = [ "derive" ] }
