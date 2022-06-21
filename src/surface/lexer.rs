@@ -7,6 +7,10 @@ use crate::surface::Span;
 #[derive(Logos, Debug, PartialEq)]
 pub enum TokenType {
     #[error]
+    // skip whitespace
+    #[regex(r"[ \t\r\n\f]+", logos::skip)]
+    // skip comments
+    #[regex(r"(#[^\n]*)|(#[^(\r\n)]*)", logos::skip)]
     Error,
 
     // Delimiters and syntactic operators
@@ -18,8 +22,10 @@ pub enum TokenType {
     Colon,
     #[token("=")]
     Equal,
-    #[token("=>")]
+    #[token("->")]
     Arrow,
+    #[token("=>")]
+    DoubleArrow,
 
     // Operators
     #[token("+")]
@@ -36,6 +42,8 @@ pub enum TokenType {
     // Primitive types
     #[token("Int")]
     Int,
+    #[token("Bool")]
+    Bool,
 
     // Identifiers
     #[regex(r"[a-zA-Z_][a-zA-Z_0-9]*")]
@@ -53,11 +61,13 @@ pub enum Token<'src> {
     Colon,
     Equal,
     Arrow,
+    DoubleArrow,
     Plus,
     Fun,
     Let,
     In,
     Int,
+    Bool,
     Identifier(&'src str),
     Number(i32),
 }
@@ -104,11 +114,13 @@ impl<'src> Lexer<'src> {
             TokenType::Colon => Ok(Token::Colon),
             TokenType::Equal => Ok(Token::Equal),
             TokenType::Arrow => Ok(Token::Arrow),
+            TokenType::DoubleArrow => Ok(Token::DoubleArrow),
             TokenType::Plus => Ok(Token::Plus),
             TokenType::Fun => Ok(Token::Fun),
             TokenType::Let => Ok(Token::Let),
             TokenType::In => Ok(Token::In),
             TokenType::Int => Ok(Token::Int),
+            TokenType::Bool => Ok(Token::Bool),
             TokenType::Identifier => Ok(Token::Identifier(self.logos.slice())),
             TokenType::Number => match self.logos.slice().parse() {
                 Ok(v) => Ok(Token::Number(v)),

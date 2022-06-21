@@ -14,12 +14,14 @@ extern {
         ")" => Token::RParen,
         ":" => Token::Colon,
         "=" => Token::Equal,
-        "=>" => Token::Arrow,
+        "->" => Token::Arrow,
+        "=>" => Token::DoubleArrow,
         "+" => Token::Plus,
         "fun" => Token::Fun,
         "let" => Token::Let,
         "in" => Token::In,
         "Int" => Token::Int,
+        "Bool" => Token::Bool,
         Identifier => Token::Identifier(<&'src str>),
         Number => Token::Number(<i32>),
     }
@@ -27,9 +29,24 @@ extern {
 
 Box<T>: Box<T> = T => Box::new(<>);
 
-Type: Type<'src> = {
+pub Type: Type<'src> = Type0;
+
+FuncTypeParam: Type<'src> = <Type1> "->";
+
+Type0: Type<'src> = {
+    <params: (FuncTypeParam)*> <ret: Box<Type1>> =>
+        if params.is_empty() {
+            *ret
+        } else {
+            Type::Func(params, ret)
+        },
+}
+
+Type1: Type<'src> = {
     "Int" => Type::Int,
+    "Bool" => Type::Bool,
     <name: Identifier> => Type::Var(name),
+    "(" <Type0> ")" => <>,
 }
 
 Annotation: Type<'src> = {
@@ -49,21 +66,21 @@ pub Expr = Expr0;
 Expr0: Expr<'src> = {
     "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
     "let" <name: Identifier> <params: (Binding)*> <ann: (Annotation)?> "=" <value: Box<Expr0>> "in" <body: Box<Expr0>> => Expr::Let(name, params, ann, value, body),
-    <Expr1>
+    <Expr1>,
 }
 
 Expr1: Expr<'src> = {
     <lhs: Box<Expr1>> "+" <rhs: Box<Expr2>> => Expr::Add(lhs, rhs),
-    <Expr2>
+    <Expr2>,
 }
 
 Expr2: Expr<'src> = {
     <callee: Box<Expr3>> <args: (Expr3)+> => Expr::App(callee, args),
-    <Expr3>
+    <Expr3>,
 }
 
 Expr3: Expr<'src> = {
     Number => Expr::Lit(<>),
     Identifier => Expr::Var(<>),
-    "(" <Expr0> ")" => <>
+    "(" <Expr0> ")" => <>,
 }
