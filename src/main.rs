@@ -1,9 +1,12 @@
+#![feature(never_type, box_syntax, box_patterns, let_chains)]
+
 #[macro_use] extern crate lalrpop_util;
 
 use clap::Parser;
 use bumpalo::Bump;
 
 pub mod surface;
+pub mod core;
 
 use surface::parse_from_file;
 
@@ -20,7 +23,17 @@ fn main() {
     let args = Args::parse();
     let source_storage = Bump::new();
     match parse_from_file(&args.path, &source_storage) {
-        Ok(expr) => println!("{expr:?}"),
+        Ok(expr) => {
+            println!("Parser: {expr:?}");
+            let mut tc = core::Typechecker::new();
+            match tc.infer(expr) {
+                Ok((expr_elab, expr_type)) => {
+                    println!("Elab: {expr_elab:?}");
+                    println!("Type: {expr_type:?}");
+                },
+                Err(error) => println!("{error:?}")
+            }
+        },
         Err(error) => println!("{error:?}"),
     }
 }
