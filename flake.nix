@@ -3,42 +3,47 @@
   
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
-    crate2nix = {
-      url = "github:kolloch/crate2nix";
-      flake = false;
-    };
     flake-utils = {
       url = "github:numtide/flake-utils";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    naersk = {
+      url = "github:nmattia/naersk";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, crate2nix, flake-utils }:
+  outputs = { self, nixpkgs, fenix, naersk, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
 
-        inherit (import "${crate2nix}/tools.nix" { inherit pkgs; })
-          generatedCargoNix;
+        toolchain = fenix.packages.${system}.complete;
 
-        project = pkgs.callPackage (generatedCargoNix {
-          name = "lamb";
-          src = ./.;
-        }) {
-          defaultCrateOverrides = pkgs.defaultCrateOverrides // {
-            # Crate dependency overrides go here
-          };
+        naersk-lib = naersk.lib.${system}.override {
+          inherit (toolchain) cargo rustc;
         };
 
+        lamb = naersk-lib.buildPackage {
+          name = "lamb";
+          src = ./.;
+        };
       in {
-        packages.lamb = project.rootCrate.build;
-
+        packages.lamb = lamb;
         defaultPackage = self.packages.${system}.lamb;
 
         devShell = pkgs.mkShell {
           inputsFrom = builtins.attrValues self.packages.${system};
-          buildInputs = [ pkgs.cargo pkgs.rust-analyzer pkgs.clippy ];
+          nativeBuildInputs = [
+            (toolchain.withComponents [
+              "cargo" "rustc" "rust-src" "rustfmt" "clippy"
+            ])
+          ];
+          RUST_BACKTRACE = 1;
         };
       });
 }
-
