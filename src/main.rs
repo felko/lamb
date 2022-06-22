@@ -26,10 +26,10 @@ fn main() {
         Ok(expr) => {
             println!("Parser: {expr:?}");
             let mut tc = core::Typechecker::new();
-            match tc.infer(expr) {
-                Ok((expr_elab, expr_type)) => {
-                    println!("Elab: {expr_elab:?}");
-                    println!("Type: {expr_type:?}");
+            match tc.infer_expr(expr) {
+                Ok((expr_elab, scheme)) => {
+                    println!("Elab: {expr_elab}");
+                    println!("Type: {scheme}");
                 },
                 Err(error) => println!("{error:?}")
             }

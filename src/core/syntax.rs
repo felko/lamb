@@ -20,39 +20,39 @@ pub enum Type<'src> {
     Bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Scheme<'src> {
     pub variables: Vec<String>,
     pub type_: Type<'src>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Binding<'src> {
     pub name: &'src str,
     pub type_: Type<'src>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr<'src> {
     Lit(i32),
     Var(&'src str),
     Abs(Vec<Binding<'src>>, Box<Expr<'src>>),
     Add(Box<Expr<'src>>, Box<Expr<'src>>),
-    Let(
-        &'src str,
-        Vec<Binding<'src>>,
-        Type<'src>,
-        Box<Expr<'src>>,
-        Box<Expr<'src>>,
-    ),
+    Let {
+        name: &'src str,
+        type_params: Vec<String>,
+        params: Vec<Binding<'src>>,
+        return_type: Type<'src>,
+        value: Box<Expr<'src>>,
+        cont: Box<Expr<'src>>,
+    },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
 }
 
 impl<'src> Display for TVar<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TVar::Unbound { var, .. } => write!(f, "${var}"),
+            TVar::Unbound { var, level } => write!(f, "${var}"),
             TVar::Bound(type_) => type_.fmt(f),
         }
     }
@@ -113,8 +113,22 @@ impl<'src> Display for Expr<'src> {
             Expr::Add(lhs, rhs) => {
                 write!(f, "{lhs} + {rhs}")
             }
-            Expr::Let(name, params, return_type, value, cont) => {
+            Expr::Let {
+                name,
+                type_params,
+                params,
+                return_type,
+                value,
+                cont,
+            } => {
                 write!(f, "(let {name} ")?;
+                if !type_params.is_empty() {
+                    write!(f, "<{}", type_params[0])?;
+                    for i in 1..type_params.len() {
+                        write!(f, ", {}", type_params[i])?;
+                    }
+                    write!(f, ">")?;
+                }
                 for binding in params {
                     write!(f, "{binding} ")?;
                 }

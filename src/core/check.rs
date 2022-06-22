@@ -1,8 +1,6 @@
-#![allow(dead_code, unused_variables)]
-
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -45,13 +43,21 @@ where
     }
 
     pub fn lookup(&self, key: K) -> Option<&V> {
-        let mut depth = self.scopes.len() - 1;
-        while !self.scopes[depth].contains_key(&key) {
-            depth -= 1;
+        if !self.scopes.is_empty() {
+            let mut depth = self.scopes.len();
+            loop {
+                depth -= 1;
+
+                if depth == 0 || self.scopes[depth].contains_key(&key) {
+                    break;
+                }
+            }
+            self.scopes[depth]
+                .get(&key)
+                .or_else(|| self.top_level.get(&key))
+        } else {
+            self.top_level.get(&key)
         }
-        self.scopes[depth]
-            .get(&key)
-            .or_else(|| self.top_level.get(&key))
     }
 
     pub fn insert(&mut self, key: K, value: V) {
@@ -119,6 +125,20 @@ impl<K: Display, V: Display> Display for Environment<K, V> {
     }
 }
 
+fn show_skolems(skolems: &HashSet<String>) -> String {
+    let mut s = "{".to_owned();
+    let skolems = Vec::from_iter(skolems.iter().cloned());
+    if !skolems.is_empty() {
+        s.push_str(&skolems[0].as_ref());
+        for i in 1..skolems.len() {
+            s.push_str(", ");
+            s.push_str(&skolems[i].as_ref());
+        }
+    }
+    s.push('}');
+    s
+}
+
 pub struct Typechecker<'src> {
     pub definitions: HashMap<&'src str, Scheme<'src>>,
     pub environment: Environment<&'src str, Scheme<'src>>,
@@ -128,8 +148,6 @@ pub struct Typechecker<'src> {
 }
 
 impl<'src> Typechecker<'src> {
-    const INDENT_SIZE: usize = 4;
-
     pub fn new() -> Typechecker<'src> {
         Typechecker {
             definitions: HashMap::new(),
@@ -177,7 +195,7 @@ impl<'src> Typechecker<'src> {
                     TVar::Bound(type_) => self.instantiate_type(subst, type_),
                     TVar::Unbound { .. } => Type::TVar(var),
                 }
-            },
+            }
             Type::Func(parameter_types, box return_type) => {
                 let parameter_types = parameter_types
                     .iter()
@@ -191,21 +209,186 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    pub fn instantiate(&mut self, scheme: Scheme<'src>) -> Type<'src> {
+    fn instantiate(&mut self, scheme: Scheme<'src>) -> Type<'src> {
         let Scheme { variables, type_ } = scheme;
         let subst = variables
             .iter()
-            .map(|var| (var.clone(), Type::TVar(Rc::new(RefCell::new(self.fresh_tvar())))))
+            .map(|var| {
+                (
+                    var.clone(),
+                    Type::TVar(Rc::new(RefCell::new(self.fresh_tvar()))),
+                )
+            })
             .collect();
         self.instantiate_type(&subst, type_)
     }
 
-    pub fn occurs_check(&self, uvar: UVar, type_: &Type<'src>) -> Result<(), TypeError<'src>> {
-        Ok(())
+    fn generate_rigid_var_name(&self, uvar: UVar) -> String {
+        let mut var_name = String::new();
+        if uvar < 26 {
+            var_name.push(
+                std::char::from_u32(u8::try_from('A').unwrap() as u32 + uvar as u32).unwrap(),
+            );
+        } else {
+            var_name.push('A');
+            var_name.push_str(uvar.to_string().as_ref());
+        }
+        var_name
     }
 
-    pub fn unify(&mut self, lhs: Type<'src>, rhs: Type<'src>) -> Result<(), TypeError<'src>> {
-        println!("{}─ {} ~ {}", "│   ".repeat(self.indent as usize), lhs, rhs);
+    fn generalize(&mut self, skolems: &mut HashSet<String>, type_: Type<'src>) -> Type<'src> {
+        // println!(
+        //     "{}┬ generalizing {}, variables: {}, level: {}",
+        //     "│   ".repeat(self.indent as usize),
+        //     type_,
+        //     show_skolems(&skolems),
+        //     self.level,
+        // );
+        self.indent += 1;
+        let type_gen = match type_ {
+            Type::Int => Type::Int,
+            Type::Bool => Type::Bool,
+            Type::Name { name } => Type::Name { name },
+            Type::QVar(name) => Type::QVar(name),
+            Type::TVar(tvar_ref) => {
+                let tvar = (*tvar_ref).borrow().clone();
+                match tvar {
+                    TVar::Bound(type_) => self.generalize(skolems, type_),
+                    TVar::Unbound { var, level } if level > self.level => {
+                        let var_name = self.generate_rigid_var_name(var);
+                        skolems.insert(var_name.clone());
+                        Type::QVar(var_name)
+                    }
+                    _ => Type::TVar(tvar_ref),
+                }
+            }
+            Type::Func(param_types, box return_type) => {
+                let gen_param_types = param_types
+                    .iter()
+                    .map(|param_type| self.generalize(skolems, param_type.clone()))
+                    .collect();
+                let gen_return_type = self.generalize(skolems, return_type);
+                Type::Func(gen_param_types, box gen_return_type)
+            }
+        };
+        self.indent -= 1;
+        // println!(
+        //     "{}└ generalized into {}, variables: {}, level: {}",
+        //     "│   ".repeat(self.indent as usize),
+        //     type_gen.clone(),
+        //     show_skolems(&skolems),
+        //     self.level,
+        // );
+        type_gen
+    }
+
+    fn generalize_expr(
+        &mut self,
+        skolems: &mut HashSet<String>,
+        expr: core::Expr<'src>,
+    ) -> core::Expr<'src> {
+        // println!(
+        //     "{}┬ generalizing {}, variables: {}, level: {}",
+        //     "│   ".repeat(self.indent as usize),
+        //     expr,
+        //     show_skolems(&skolems),
+        //     self.level,
+        // );
+        self.indent += 1;
+        let expr_gen = match expr {
+            core::Expr::Lit(value) => core::Expr::Lit(value),
+            core::Expr::Var(name) => core::Expr::Var(name),
+            core::Expr::Add(box lhs, box rhs) => core::Expr::Add(
+                box self.generalize_expr(skolems, lhs),
+                box self.generalize_expr(skolems, rhs),
+            ),
+            core::Expr::App(box callee, args) => core::Expr::App(
+                box self.generalize_expr(skolems, callee),
+                args.iter()
+                    .cloned()
+                    .map(|arg| self.generalize_expr(skolems, arg))
+                    .collect(),
+            ),
+            core::Expr::Abs(params, box body) => core::Expr::Abs(
+                params
+                    .iter()
+                    .cloned()
+                    .map(|core::Binding { name, type_ }| core::Binding {
+                        name,
+                        type_: self.generalize(skolems, type_),
+                    })
+                    .collect(),
+                box self.generalize_expr(skolems, body),
+            ),
+            core::Expr::Let {
+                name,
+                type_params,
+                params,
+                return_type,
+                box value,
+                box cont,
+            } => core::Expr::Let {
+                name,
+                type_params,
+                params: params
+                    .iter()
+                    .cloned()
+                    .map(|core::Binding { name, type_ }| core::Binding {
+                        name,
+                        type_: self.generalize(skolems, type_),
+                    })
+                    .collect(),
+                return_type: self.generalize(skolems, return_type),
+                value: box self.generalize_expr(skolems, value),
+                cont: box self.generalize_expr(skolems, cont),
+            },
+        };
+        self.indent -= 1;
+        // println!(
+        //     "{}└ generalized into {}, variables: {}, level: {}",
+        //     "│   ".repeat(self.indent as usize),
+        //     expr_gen.clone(),
+        //     show_skolems(&skolems),
+        //     self.level,
+        // );
+        expr_gen
+    }
+
+    fn occurs_check(&self, tvar_ref: Rc<RefCell<TVar<'src>>>, type_: Type<'src>) -> bool {
+        match type_ {
+            Type::Int => true,
+            Type::Bool => true,
+            Type::Name {..} => true,
+            Type::QVar(_) => true,
+            Type::TVar(tvar_ref2) if Rc::ptr_eq(&tvar_ref, &tvar_ref2) => false,
+            Type::TVar(tvar_ref2) => {
+                let tvar2 = (*tvar_ref2).borrow().clone();
+                match tvar2 {
+                    TVar::Unbound {var: var2, level: level2} => {
+                        let min_level = match (*tvar_ref).borrow().clone() {
+                            TVar::Unbound {level, ..} => level.min(level2),
+                            _ => level2,
+                        };
+                        *(*tvar_ref2).borrow_mut() = TVar::Unbound {var: var2, level: min_level};
+                        true
+                    },
+                    TVar::Bound(type_) => self.occurs_check(tvar_ref, type_),
+                }
+            },
+            Type::Func(param_types, box return_type) =>
+                param_types.iter().all(|param_type| self.occurs_check(tvar_ref.clone(), param_type.clone()))
+                    && self.occurs_check(tvar_ref, return_type),
+        }
+    }
+
+    fn unify(&mut self, lhs: Type<'src>, rhs: Type<'src>) -> Result<(), TypeError<'src>> {
+        println!(
+            "{}─ {} ~ {}, level: {}",
+            "│   ".repeat(self.indent as usize),
+            lhs,
+            rhs,
+            self.level
+        );
         self.indent += 1;
         let result = match (lhs, rhs) {
             (Type::Int, Type::Int) => Ok(()),
@@ -214,14 +397,19 @@ impl<'src> Typechecker<'src> {
             (Type::TVar(tvar_ref), type_) | (type_, Type::TVar(tvar_ref)) => {
                 let tvar = (*tvar_ref).borrow().clone();
                 match tvar {
-                    TVar::Unbound { var, level } => {
-                        self.occurs_check(var, &type_)?;
-                        *(*tvar_ref).borrow_mut() = TVar::Bound(type_);
-                        Ok(())
+                    TVar::Unbound { .. } => {
+                        if self.occurs_check(tvar_ref.clone(), type_.clone()) {
+                            *(*tvar_ref).borrow_mut() = TVar::Bound(type_);
+                            Ok(())
+                        } else {
+                            Err(
+                                TypeError::OccursCheckFailure(tvar.clone(), type_)
+                            )
+                        }
                     }
                     TVar::Bound(bound_type) => self.unify(bound_type, type_),
                 }
-            },
+            }
             (Type::Func(params1, box ret1), Type::Func(params2, box ret2)) => {
                 let mut arg_index = 0;
                 let (arity1, arity2) = (params1.len(), params2.len());
@@ -247,7 +435,7 @@ impl<'src> Typechecker<'src> {
         result
     }
 
-    pub fn surface_type_to_core_type(&self, type_: surface::Type<'src>) -> Type<'src> {
+    fn surface_type_to_core_type(&self, type_: surface::Type<'src>) -> Type<'src> {
         match type_ {
             surface::Type::Name(name) => Type::Name { name },
             surface::Type::Var(name) => Type::QVar(name.to_owned()),
@@ -264,7 +452,7 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    pub fn with_scope<T, F>(&mut self, params: Vec<surface::Binding<'src>>, f: F) -> T
+    fn with_scope<T, F>(&mut self, params: Vec<surface::Binding<'src>>, f: F) -> T
     where
         F: FnOnce(&mut Self, Vec<Type<'src>>, Vec<core::Binding<'src>>) -> T,
     {
@@ -310,7 +498,7 @@ impl<'src> Typechecker<'src> {
         result
     }
 
-    pub fn infer(
+    fn infer(
         &mut self,
         expr: surface::Expr<'src>,
     ) -> Result<(core::Expr<'src>, Type<'src>), TypeError<'src>> {
@@ -318,7 +506,7 @@ impl<'src> Typechecker<'src> {
             "{}┬ {} ⊢ {} ⇑ ?",
             "│   ".repeat(self.indent as usize),
             self.environment,
-            expr
+            expr,
         );
         self.indent += 1;
         let (expr_elab, expr_type) = match expr {
@@ -341,21 +529,24 @@ impl<'src> Typechecker<'src> {
                 for _ in 0..args.len() {
                     param_vars.push(Rc::new(RefCell::new(self.fresh_tvar())));
                 }
-                let param_types = param_vars.iter().map(|var| Type::TVar(Rc::clone(&var))).collect();
+                let param_types = param_vars
+                    .iter()
+                    .map(|var| Type::TVar(Rc::clone(&var)))
+                    .collect();
                 let return_var = Rc::new(RefCell::new(self.fresh_tvar()));
                 self.unify(
                     callee_type,
-                    Type::Func(
-                        param_types,
-                        box Type::TVar(Rc::clone(&return_var)),
-                    ),
+                    Type::Func(param_types, box Type::TVar(Rc::clone(&return_var))),
                 )?;
                 let mut args_elab = Vec::new();
                 for (arg, param_type) in args.into_iter().zip(param_vars) {
                     let arg_elab = self.check(arg, Type::TVar(param_type))?;
                     args_elab.push(arg_elab);
                 }
-                Ok((core::Expr::App(box callee_elab, args_elab), Type::TVar(return_var)))
+                Ok((
+                    core::Expr::App(box callee_elab, args_elab),
+                    Type::TVar(return_var),
+                ))
             }
             surface::Expr::Abs(params, box body) => {
                 self.with_scope(params, |self_, param_types, params_elab| {
@@ -364,8 +555,67 @@ impl<'src> Typechecker<'src> {
                     Ok((core::Expr::Abs(params_elab, box body_elab), func_type))
                 })
             }
-            surface::Expr::Let(name, params, return_type, value, cont) => {
-                panic!()
+            surface::Expr::Let(name, params, return_type_opt, box body, box cont) => {
+                self.level += 1;
+                let (type_params, params_elab, param_types, return_type, body_elab) = self
+                    .with_scope(params, |self_, mut param_types, mut params_elab| {
+                        let mut body_elab;
+                        let mut body_type;
+                        let mut skolems = HashSet::new();
+                        if let Some(return_type) = return_type_opt {
+                            body_type = self_.surface_type_to_core_type(return_type);
+                            body_elab = self_.check(body, body_type.clone())?;
+                        } else {
+                            (body_elab, body_type) = self_.infer(body)?;
+                        }
+                        self_.level -= 1;
+                        body_type = self_.generalize(&mut skolems, body_type);
+                        param_types = param_types
+                            .iter()
+                            .map(|param_type| self_.generalize(&mut skolems, param_type.clone()))
+                            .collect();
+                        params_elab = params_elab
+                            .iter()
+                            .map(|core::Binding { name, type_ }| core::Binding {
+                                name,
+                                type_: self_.generalize(&mut skolems, type_.clone()),
+                            })
+                            .collect();
+                        body_elab = self_.generalize_expr(&mut skolems, body_elab);
+                        Ok((
+                            Vec::from_iter(skolems),
+                            params_elab,
+                            param_types,
+                            body_type,
+                            body_elab,
+                        ))
+                    })?;
+                self.environment.new_scope();
+                let type_ = if params_elab.is_empty() {
+                    return_type.clone()
+                } else {
+                    Type::Func(param_types, box return_type.clone())
+                };
+                self.environment.insert(
+                    name,
+                    Scheme {
+                        variables: type_params.clone(),
+                        type_,
+                    },
+                );
+                let (cont_elab, cont_type) = self.infer(cont)?;
+                self.environment.pop_scope();
+                Ok((
+                    core::Expr::Let {
+                        name,
+                        type_params,
+                        params: params_elab,
+                        return_type,
+                        value: box body_elab,
+                        cont: box cont_elab,
+                    },
+                    cont_type,
+                ))
             }
         }?;
         self.indent -= 1;
@@ -374,12 +624,12 @@ impl<'src> Typechecker<'src> {
             "│   ".repeat(self.indent as usize),
             self.environment,
             expr_elab,
-            expr_type
+            expr_type,
         );
         Ok((expr_elab, expr_type))
     }
 
-    pub fn check(
+    fn check(
         &mut self,
         expr: surface::Expr<'src>,
         mut type_: Type<'src>,
@@ -391,15 +641,16 @@ impl<'src> Typechecker<'src> {
                     TVar::Bound(type_) => type_,
                     TVar::Unbound { .. } => Type::TVar(var),
                 }
-            },
+            }
             type_ => type_,
         };
         println!(
-            "{}┬ {} ⊢ {} ⇓ {}",
+            "{}┬ {} ⊢ {} ⇓ {}, level: {}",
             "│   ".repeat(self.indent as usize),
             self.environment,
             expr,
-            type_
+            type_,
+            self.level,
         );
         self.indent += 1;
         let expr_elab = match (expr, type_.clone()) {
@@ -437,13 +688,70 @@ impl<'src> Typechecker<'src> {
             }
             (surface::Expr::Abs(params, box body), expected_type) => {
                 self.with_scope(params, |self_, param_types, params_elab| {
-                    let return_type = self_.fresh_tvar();
                     let (body_elab, body_type) = self_.infer(body)?;
                     let func_type = Type::Func(param_types, box body_type);
+                    self_.unify(func_type, expected_type.clone())?;
                     Ok(core::Expr::Abs(params_elab, box body_elab))
                 })
             }
-            (surface::Expr::Let(_, _, _, _, _), expected_type) => panic!(),
+            (
+                surface::Expr::Let(name, params, return_type_opt, box body, box cont),
+                expected_type,
+            ) => {
+                self.level += 1;
+                let (type_params, params_elab, param_types, return_type, body_elab) = self
+                    .with_scope(params, |self_, mut param_types, mut params_elab| {
+                        let mut body_elab;
+                        let mut body_type;
+                        let mut skolems = HashSet::new();
+                        if let Some(return_type) = return_type_opt {
+                            body_type = self_.surface_type_to_core_type(return_type);
+                            body_elab = self_.check(body, body_type.clone())?;
+                        } else {
+                            (body_elab, body_type) = self_.infer(body)?;
+                        }
+                        self_.level -= 1;
+                        body_type = self_.generalize(&mut skolems, body_type);
+                        param_types = param_types
+                            .iter()
+                            .map(|param_type| self_.generalize(&mut skolems, param_type.clone()))
+                            .collect();
+                        params_elab = params_elab
+                            .iter()
+                            .map(|core::Binding { name, type_ }| core::Binding {
+                                name,
+                                type_: self_.generalize(&mut skolems, type_.clone()),
+                            })
+                            .collect();
+                        body_elab = self_.generalize_expr(&mut skolems, body_elab);
+                        let type_params = Vec::from_iter(skolems);
+                        Ok((type_params, params_elab, param_types, body_type, body_elab))
+                    })?;
+
+                self.environment.new_scope();
+                let type_ = if params_elab.is_empty() {
+                    return_type.clone()
+                } else {
+                    Type::Func(param_types, box return_type.clone())
+                };
+                self.environment.insert(
+                    name,
+                    Scheme {
+                        variables: type_params.clone(),
+                        type_,
+                    },
+                );
+                let cont_elab = self.check(cont, expected_type)?;
+                self.environment.pop_scope();
+                Ok(core::Expr::Let {
+                    name,
+                    type_params,
+                    params: params_elab,
+                    return_type,
+                    value: box body_elab,
+                    cont: box cont_elab,
+                })
+            }
             (expr, expected_type) => {
                 let (expr_elab, expr_type) = self.infer(expr)?;
                 self.unify(expr_type, expected_type)?;
@@ -456,8 +764,25 @@ impl<'src> Typechecker<'src> {
             "│   ".repeat(self.indent as usize),
             self.environment,
             expr_elab,
-            type_
+            type_,
         );
         Ok(expr_elab)
+    }
+
+    pub fn infer_expr(
+        &mut self,
+        expr: surface::Expr<'src>,
+    ) -> Result<(core::Expr<'src>, Scheme<'src>), TypeError<'src>> {
+        self.level += 1;
+        let (mut expr_elab, mut expr_type) = self.infer(expr)?;
+        self.level -= 1;
+        let mut skolems = HashSet::new();
+        expr_elab = self.generalize_expr(&mut skolems, expr_elab);
+        expr_type = self.generalize(&mut skolems, expr_type);
+        let scheme = Scheme {
+            variables: Vec::from_iter(skolems),
+            type_: expr_type,
+        };
+        Ok((expr_elab, scheme))
     }
 }
