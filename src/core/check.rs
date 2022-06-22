@@ -125,6 +125,7 @@ impl<K: Display, V: Display> Display for Environment<K, V> {
     }
 }
 
+#[allow(dead_code)]
 fn show_skolems(skolems: &HashSet<String>) -> String {
     let mut s = "{".to_owned();
     let skolems = Vec::from_iter(skolems.iter().cloned());
@@ -325,7 +326,7 @@ impl<'src> Typechecker<'src> {
                 type_params,
                 params,
                 return_type,
-                box value,
+                box body,
                 box cont,
             } => core::Expr::Let {
                 name,
@@ -339,7 +340,7 @@ impl<'src> Typechecker<'src> {
                     })
                     .collect(),
                 return_type: self.generalize(skolems, return_type),
-                value: box self.generalize_expr(skolems, value),
+                body: box self.generalize_expr(skolems, body),
                 cont: box self.generalize_expr(skolems, cont),
             },
         };
@@ -555,14 +556,14 @@ impl<'src> Typechecker<'src> {
                     Ok((core::Expr::Abs(params_elab, box body_elab), func_type))
                 })
             }
-            surface::Expr::Let(name, params, return_type_opt, box body, box cont) => {
+            surface::Expr::Let { name, params, return_type, box body, box cont } => {
                 self.level += 1;
                 let (type_params, params_elab, param_types, return_type, body_elab) = self
                     .with_scope(params, |self_, mut param_types, mut params_elab| {
                         let mut body_elab;
                         let mut body_type;
                         let mut skolems = HashSet::new();
-                        if let Some(return_type) = return_type_opt {
+                        if let Some(return_type) = return_type {
                             body_type = self_.surface_type_to_core_type(return_type);
                             body_elab = self_.check(body, body_type.clone())?;
                         } else {
@@ -611,7 +612,7 @@ impl<'src> Typechecker<'src> {
                         type_params,
                         params: params_elab,
                         return_type,
-                        value: box body_elab,
+                        body: box body_elab,
                         cont: box cont_elab,
                     },
                     cont_type,
@@ -695,7 +696,7 @@ impl<'src> Typechecker<'src> {
                 })
             }
             (
-                surface::Expr::Let(name, params, return_type_opt, box body, box cont),
+                surface::Expr::Let { name, params, return_type, box body, box cont },
                 expected_type,
             ) => {
                 self.level += 1;
@@ -704,7 +705,7 @@ impl<'src> Typechecker<'src> {
                         let mut body_elab;
                         let mut body_type;
                         let mut skolems = HashSet::new();
-                        if let Some(return_type) = return_type_opt {
+                        if let Some(return_type) = return_type {
                             body_type = self_.surface_type_to_core_type(return_type);
                             body_elab = self_.check(body, body_type.clone())?;
                         } else {
@@ -748,7 +749,7 @@ impl<'src> Typechecker<'src> {
                     type_params,
                     params: params_elab,
                     return_type,
-                    value: box body_elab,
+                    body: box body_elab,
                     cont: box cont_elab,
                 })
             }

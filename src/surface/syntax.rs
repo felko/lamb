@@ -21,14 +21,16 @@ pub enum Expr<'src> {
     Var(&'src str),
     Abs(Vec<Binding<'src>>, Box<Expr<'src>>),
     Add(Box<Expr<'src>>, Box<Expr<'src>>),
-    Let(
-        &'src str,
-        Vec<Binding<'src>>,
-        Option<Type<'src>>,
-        Box<Expr<'src>>,
-        Box<Expr<'src>>,
-    ),
+    Let {
+        name: &'src str,
+        params: Vec<Binding<'src>>,
+        return_type: Option<Type<'src>>,
+        body: Box<Expr<'src>>,
+        cont: Box<Expr<'src>>,
+    },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
+}
+
 }
 
 impl<'src> Display for Type<'src> {
@@ -73,7 +75,13 @@ impl<'src> Display for Expr<'src> {
             Expr::Add(lhs, rhs) => {
                 write!(f, "{lhs} + {rhs}")
             }
-            Expr::Let(name, params, return_type, value, cont) => {
+            Expr::Let {
+                name,
+                params,
+                return_type,
+                body,
+                cont,
+            } => {
                 write!(f, "(let {name} ")?;
                 for binding in params {
                     write!(f, "{binding} ")?;
@@ -81,7 +89,7 @@ impl<'src> Display for Expr<'src> {
                 if let Some(return_type) = return_type {
                     write!(f, ": {return_type} ")?;
                 }
-                write!(f, "= {value} in {cont})")
+                write!(f, "= {body} in {cont})")
             }
             Expr::App(callee, args) => {
                 write!(f, "({callee}")?;

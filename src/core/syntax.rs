@@ -43,7 +43,7 @@ pub enum Expr<'src> {
         type_params: Vec<String>,
         params: Vec<Binding<'src>>,
         return_type: Type<'src>,
-        value: Box<Expr<'src>>,
+        body: Box<Expr<'src>>,
         cont: Box<Expr<'src>>,
     },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
@@ -52,7 +52,7 @@ pub enum Expr<'src> {
 impl<'src> Display for TVar<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TVar::Unbound { var, level } => write!(f, "${var}"),
+            TVar::Unbound { var, .. } => write!(f, "${var}"),
             TVar::Bound(type_) => type_.fmt(f),
         }
     }
@@ -118,7 +118,7 @@ impl<'src> Display for Expr<'src> {
                 type_params,
                 params,
                 return_type,
-                value,
+                body,
                 cont,
             } => {
                 write!(f, "(let {name} ")?;
@@ -132,7 +132,7 @@ impl<'src> Display for Expr<'src> {
                 for binding in params {
                     write!(f, "{binding} ")?;
                 }
-                write!(f, ": {return_type} = {value} in {cont})")
+                write!(f, ": {return_type} = {body} in {cont})")
             }
             Expr::App(callee, args) => {
                 write!(f, "({callee}")?;

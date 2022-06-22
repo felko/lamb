@@ -65,7 +65,7 @@ pub Expr = Expr0;
 
 Expr0: Expr<'src> = {
     "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
-    "let" <name: Identifier> <params: (Binding)*> <ann: (Annotation)?> "=" <value: Box<Expr0>> "in" <body: Box<Expr0>> => Expr::Let(name, params, ann, value, body),
+    "let" <name: Identifier> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Box<Expr0>> "in" <cont: Box<Expr0>> => Expr::Let {name, params, return_type, body, cont },
     <Expr1>,
 }
 
