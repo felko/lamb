@@ -16,6 +16,7 @@ pub enum TypeError<'src> {
     ScopeError(&'src str),
     OccursCheckFailure(TVar<'src>, Type<'src>),
     UnificationFailure(Type<'src>, Type<'src>),
+    AlreadyDefined(&'src str),
 }
 
 pub struct Environment<K, V> {
@@ -73,7 +74,6 @@ where
     }
 
     pub fn clear(&mut self) {
-        self.top_level.clear();
         self.scopes.clear();
     }
 }
@@ -95,26 +95,16 @@ impl<K: Display, V: Display> Display for Environment<K, V> {
                 Ok(())
             }
         }
-        if self.top_level.is_empty() {
-            let mut first_non_empty_scope_index = 0;
-            while first_non_empty_scope_index < self.scopes.len()
-                && self.scopes[first_non_empty_scope_index].is_empty()
-            {
-                first_non_empty_scope_index += 1;
-            }
-            if first_non_empty_scope_index < self.scopes.len() {
-                fmt_scope(f, &self.scopes[first_non_empty_scope_index])?;
-                for i in (first_non_empty_scope_index + 1)..self.scopes.len() {
-                    let scope = &self.scopes[i];
-                    if !scope.is_empty() {
-                        write!(f, "; ")?;
-                        fmt_scope(f, &scope)?;
-                    }
-                }
-            }
-        } else {
-            fmt_scope(f, &self.top_level)?;
-            for scope in &self.scopes {
+        let mut first_non_empty_scope_index = 0;
+        while first_non_empty_scope_index < self.scopes.len()
+            && self.scopes[first_non_empty_scope_index].is_empty()
+        {
+            first_non_empty_scope_index += 1;
+        }
+        if first_non_empty_scope_index < self.scopes.len() {
+            fmt_scope(f, &self.scopes[first_non_empty_scope_index])?;
+            for i in (first_non_empty_scope_index + 1)..self.scopes.len() {
+                let scope = &self.scopes[i];
                 if !scope.is_empty() {
                     write!(f, "; ")?;
                     fmt_scope(f, &scope)?;
@@ -359,26 +349,35 @@ impl<'src> Typechecker<'src> {
         match type_ {
             Type::Int => true,
             Type::Bool => true,
-            Type::Name {..} => true,
+            Type::Name { .. } => true,
             Type::QVar(_) => true,
             Type::TVar(tvar_ref2) if Rc::ptr_eq(&tvar_ref, &tvar_ref2) => false,
             Type::TVar(tvar_ref2) => {
                 let tvar2 = (*tvar_ref2).borrow().clone();
                 match tvar2 {
-                    TVar::Unbound {var: var2, level: level2} => {
+                    TVar::Unbound {
+                        var: var2,
+                        level: level2,
+                    } => {
                         let min_level = match (*tvar_ref).borrow().clone() {
-                            TVar::Unbound {level, ..} => level.min(level2),
+                            TVar::Unbound { level, .. } => level.min(level2),
                             _ => level2,
                         };
-                        *(*tvar_ref2).borrow_mut() = TVar::Unbound {var: var2, level: min_level};
+                        *(*tvar_ref2).borrow_mut() = TVar::Unbound {
+                            var: var2,
+                            level: min_level,
+                        };
                         true
-                    },
+                    }
                     TVar::Bound(type_) => self.occurs_check(tvar_ref, type_),
                 }
-            },
-            Type::Func(param_types, box return_type) =>
-                param_types.iter().all(|param_type| self.occurs_check(tvar_ref.clone(), param_type.clone()))
-                    && self.occurs_check(tvar_ref, return_type),
+            }
+            Type::Func(param_types, box return_type) => {
+                param_types
+                    .iter()
+                    .all(|param_type| self.occurs_check(tvar_ref.clone(), param_type.clone()))
+                    && self.occurs_check(tvar_ref, return_type)
+            }
         }
     }
 
@@ -403,9 +402,7 @@ impl<'src> Typechecker<'src> {
                             *(*tvar_ref).borrow_mut() = TVar::Bound(type_);
                             Ok(())
                         } else {
-                            Err(
-                                TypeError::OccursCheckFailure(tvar.clone(), type_)
-                            )
+                            Err(TypeError::OccursCheckFailure(tvar.clone(), type_))
                         }
                     }
                     TVar::Bound(bound_type) => self.unify(bound_type, type_),
@@ -556,7 +553,13 @@ impl<'src> Typechecker<'src> {
                     Ok((core::Expr::Abs(params_elab, box body_elab), func_type))
                 })
             }
-            surface::Expr::Let { name, params, return_type, box body, box cont } => {
+            surface::Expr::Let {
+                name,
+                params,
+                return_type,
+                box body,
+                box cont,
+            } => {
                 self.level += 1;
                 let (type_params, params_elab, param_types, return_type, body_elab) = self
                     .with_scope(params, |self_, mut param_types, mut params_elab| {
@@ -696,7 +699,13 @@ impl<'src> Typechecker<'src> {
                 })
             }
             (
-                surface::Expr::Let { name, params, return_type, box body, box cont },
+                surface::Expr::Let {
+                    name,
+                    params,
+                    return_type,
+                    box body,
+                    box cont,
+                },
                 expected_type,
             ) => {
                 self.level += 1;
@@ -785,5 +794,68 @@ impl<'src> Typechecker<'src> {
             type_: expr_type,
         };
         Ok((expr_elab, scheme))
+    }
+
+    pub fn run(
+        &mut self,
+        module: surface::Module<'src>,
+    ) -> Result<core::Module<'src>, TypeError<'src>> {
+        let mut functions = HashMap::new();
+        for decl in module.declarations {
+            match decl {
+                surface::Decl::Func {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                } => {
+                    self.level += 1;
+                    let (decl_elab, scheme) =
+                        self.with_scope(params, |self_, param_types, mut params_elab| {
+                            let mut body_elab;
+                            let mut body_type;
+                            let mut skolems = HashSet::new();
+                            if let Some(return_type) = return_type {
+                                body_type = self_.surface_type_to_core_type(return_type);
+                                body_elab = self_.check(body, body_type.clone())?;
+                            } else {
+                                (body_elab, body_type) = self_.infer(body)?;
+                            }
+                            self_.level -= 1;
+                            body_type = self_.generalize(&mut skolems, body_type);
+                            params_elab = params_elab
+                                .iter()
+                                .map(|core::Binding { name, type_ }| core::Binding {
+                                    name,
+                                    type_: self_.generalize(&mut skolems, type_.clone()),
+                                })
+                                .collect();
+                            body_elab = self_.generalize_expr(&mut skolems, body_elab);
+                            let type_params = Vec::from_iter(skolems);
+                            Ok((
+                                core::FuncDecl {
+                                    name,
+                                    type_params: type_params.clone(),
+                                    params: params_elab,
+                                    return_type: body_type.clone(),
+                                    body: body_elab,
+                                },
+                                Scheme {
+                                    variables: type_params,
+                                    type_: Type::Func(param_types, box body_type),
+                                },
+                            ))
+                        })?;
+                    if functions.contains_key(&name) {
+                        Err(TypeError::AlreadyDefined(name))?
+                    } else {
+                        functions.insert(name, decl_elab);
+                        self.environment.insert(name, scheme);
+                    }
+                }
+            }
+            self.reset();
+        }
+        Ok(core::Module { functions })
     }
 }

@@ -31,6 +31,45 @@ pub enum Expr<'src> {
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
 }
 
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Decl<'src> {
+    Func {
+        name: &'src str,
+        params: Vec<Binding<'src>>,
+        return_type: Option<Type<'src>>,
+        body: Expr<'src>,
+    },
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Module<'src> {
+    pub declarations: Vec<Decl<'src>>,
+}
+
+impl<'src> Display for Module<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for decl in &self.declarations {
+            write!(f, "{decl}\n")?;
+        }
+        Ok(())
+    }
+}
+
+impl<'src> Display for Decl<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Decl::Func {name, params, return_type, body} => {
+                write!(f, "def {name} ")?;
+                for binding in params {
+                    write!(f, "{binding} ")?;
+                }
+                if let Some(return_type) = return_type {
+                    write!(f, ": {return_type} ")?;
+                }
+                write!(f, "= {body}")
+            }
+        }
+    }
 }
 
 impl<'src> Display for Type<'src> {

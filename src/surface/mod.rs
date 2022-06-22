@@ -9,7 +9,7 @@ pub mod syntax;
 pub type Span = Range<usize>;
 
 use lexer::{Error as LexerError, Lexer, Token};
-use parser::ExprParser;
+use parser::ModuleParser;
 pub use syntax::*;
 
 use bumpalo::Bump;
@@ -26,10 +26,10 @@ impl<'src> From<std::io::Error> for Error<'src> {
     }
 }
 
-pub fn parse_from_str<'src>(source: &'src str) -> Result<Expr<'src>, Error<'src>> {
+pub fn parse_from_str<'src>(source: &'src str) -> Result<Module<'src>, Error<'src>> {
     let mut lexer = Lexer::new(source);
     let mut errors = Vec::new();
-    match ExprParser::new().parse(&mut errors, &mut lexer) {
+    match ModuleParser::new().parse(&mut errors, &mut lexer) {
         Ok(expr) => Ok(expr),
         Err(error) => Err(Error::ParseError(error)),
     }
@@ -38,14 +38,14 @@ pub fn parse_from_str<'src>(source: &'src str) -> Result<Expr<'src>, Error<'src>
 pub fn parse_from_file<'src>(
     path: &str,
     source_storage: &'src Bump,
-) -> Result<Expr<'src>, Error<'src>> {
+) -> Result<Module<'src>, Error<'src>> {
     let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     let source = source_storage.alloc(contents);
     let mut lexer = Lexer::new(source.as_mut_str());
     let mut errors = Vec::new();
-    ExprParser::new()
+    ModuleParser::new()
         .parse(&mut errors, &mut lexer)
         .map_err(Error::ParseError)
 }

@@ -23,13 +23,12 @@ fn main() {
     let args = Args::parse();
     let source_storage = Bump::new();
     match parse_from_file(&args.path, &source_storage) {
-        Ok(expr) => {
-            println!("Parser: {expr:?}");
+        Ok(module) => {
+            println!("Parser: {module:?}");
             let mut tc = core::Typechecker::new();
-            match tc.infer_expr(expr) {
-                Ok((expr_elab, scheme)) => {
-                    println!("Elab: {expr_elab}");
-                    println!("Type: {scheme}");
+            match tc.run(module) {
+                Ok(module_elab) => {
+                    println!("Elab:\n{module_elab}");
                 },
                 Err(error) => println!("{error:?}")
             }

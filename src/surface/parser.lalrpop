@@ -1,5 +1,5 @@
 use crate::surface::lexer::{Token, Error};
-use crate::surface::syntax::{Expr, Type, Binding};
+use crate::surface::syntax::{Module, Decl, Type, Expr, Binding};
 
 grammar<'src>(
     errors: &mut Vec<Error>
@@ -18,6 +18,7 @@ extern {
         "=>" => Token::DoubleArrow,
         "+" => Token::Plus,
         "fun" => Token::Fun,
+        "def" => Token::Def,
         "let" => Token::Let,
         "in" => Token::In,
         "Int" => Token::Int,
@@ -28,6 +29,14 @@ extern {
 }
 
 Box<T>: Box<T> = T => Box::new(<>);
+
+Decl: Decl<'src> = {
+    "def" <name: Identifier> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Expr0> => Decl::Func {name, params, return_type, body },
+}
+
+pub Module: Module<'src> = {
+    <decls: (Decl)*> => Module { declarations: decls },
+}
 
 pub Type: Type<'src> = Type0;
 

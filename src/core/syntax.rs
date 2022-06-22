@@ -1,8 +1,23 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 
 pub type UVar = u16;
+
+#[derive(Debug, Clone)]
+pub struct Module<'src> {
+    pub functions: HashMap<&'src str, FuncDecl<'src>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncDecl<'src> {
+    pub name: &'src str,
+    pub type_params: Vec<String>,
+    pub params: Vec<Binding<'src>>,
+    pub return_type: Type<'src>,
+    pub body: Expr<'src>,
+}
 
 #[derive(Debug, Clone)]
 pub enum TVar<'src> {
@@ -47,6 +62,26 @@ pub enum Expr<'src> {
         cont: Box<Expr<'src>>,
     },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
+}
+
+impl<'src> Display for Module<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (_, func) in &self.functions {
+            write!(f, "{func}\n")?;
+        }
+        Ok(())
+    }
+}
+
+impl<'src> Display for FuncDecl<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "def {} ", self.name)?;
+        for binding in &self.params {
+            write!(f, "{binding} ")?;
+        }
+        write!(f, ": {} ", self.return_type)?;
+        write!(f, "= {}", self.body)
+    }
 }
 
 impl<'src> Display for TVar<'src> {

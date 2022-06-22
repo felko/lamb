@@ -32,6 +32,8 @@ pub enum TokenType {
     Plus,
 
     // Keywords
+    #[token("def")]
+    Def,
     #[token("fun")]
     Fun,
     #[token("let")]
@@ -63,6 +65,7 @@ pub enum Token<'src> {
     Arrow,
     DoubleArrow,
     Plus,
+    Def,
     Fun,
     Let,
     In,
@@ -116,6 +119,7 @@ impl<'src> Lexer<'src> {
             TokenType::Arrow => Ok(Token::Arrow),
             TokenType::DoubleArrow => Ok(Token::DoubleArrow),
             TokenType::Plus => Ok(Token::Plus),
+            TokenType::Def => Ok(Token::Def),
             TokenType::Fun => Ok(Token::Fun),
             TokenType::Let => Ok(Token::Let),
             TokenType::In => Ok(Token::In),
