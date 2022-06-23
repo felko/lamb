@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::core;
 use crate::core::syntax::{Scheme, TVar, Type, UVar};
-use crate::environment::Environment;
+use crate::env::Env;
 use crate::surface;
 
 type Level = u8;
@@ -35,7 +35,7 @@ fn show_skolems(skolems: &HashSet<String>) -> String {
 
 pub struct Typechecker<'src> {
     pub definitions: HashMap<&'src str, Scheme<'src>>,
-    pub environment: Environment<&'src str, Scheme<'src>>,
+    pub env: Env<&'src str, Scheme<'src>>,
     pub level: Level,
     pub uvar_supply: UVar,
     indent: u8,
@@ -45,7 +45,7 @@ impl<'src> Typechecker<'src> {
     pub fn new() -> Typechecker<'src> {
         Typechecker {
             definitions: HashMap::new(),
-            environment: Environment::new(),
+            env: Env::new(),
             level: 0,
             uvar_supply: 0,
             indent: 0,
@@ -53,7 +53,7 @@ impl<'src> Typechecker<'src> {
     }
 
     pub fn reset(&mut self) {
-        self.environment.clear();
+        self.env.clear();
         self.level = 0;
         self.uvar_supply = 0;
         self.indent = 0;
@@ -440,14 +440,14 @@ impl<'src> Typechecker<'src> {
         println!(
             "{}┬ {} ⊢ {} ⇑ ?",
             "│   ".repeat(self.indent as usize),
-            self.environment,
+            self.env,
             expr,
         );
         self.indent += 1;
         let (expr_elab, expr_type) = match expr {
             surface::Expr::Lit(value) => Ok((core::Expr::Lit(value), Type::Int)),
             surface::Expr::Var(name) => {
-                if let Some(scheme) = self.environment.lookup(name) {
+                if let Some(scheme) = self.env.lookup(name) {
                     Ok((core::Expr::Var(name), self.instantiate(scheme.clone())))
                 } else {
                     Err(TypeError::ScopeError(name))
@@ -534,7 +534,7 @@ impl<'src> Typechecker<'src> {
                         box return_type.clone(),
                     )
                 };
-                self.environment.insert(
+                self.env.insert(
                     name,
                     Scheme {
                         variables: type_params.clone(),
@@ -542,7 +542,7 @@ impl<'src> Typechecker<'src> {
                     },
                 );
                 let (cont_elab, cont_type) = self.infer(cont)?;
-                self.environment.pop_scope();
+                self.env.pop_scope();
                 Ok((
                     core::Expr::Let {
                         name,
@@ -565,7 +565,7 @@ impl<'src> Typechecker<'src> {
         println!(
             "{}└ {} ⊢ {} ⇑ {}",
             "│   ".repeat(self.indent as usize),
-            self.environment,
+            self.env,
             expr_elab,
             expr_type,
         );
@@ -590,7 +590,7 @@ impl<'src> Typechecker<'src> {
         println!(
             "{}┬ {} ⊢ {} ⇓ {}, level: {}",
             "│   ".repeat(self.indent as usize),
-            self.environment,
+            self.env,
             expr,
             type_,
             self.level,
@@ -686,7 +686,7 @@ impl<'src> Typechecker<'src> {
                         box return_type.clone(),
                     )
                 };
-                self.environment.insert(
+                self.env.insert(
                     name,
                     Scheme {
                         variables: type_params.clone(),
@@ -720,7 +720,7 @@ impl<'src> Typechecker<'src> {
         println!(
             "{}└ {} ⊢ {} ⇓ {}",
             "│   ".repeat(self.indent as usize),
-            self.environment,
+            self.env,
             expr_elab,
             type_,
         );
@@ -805,7 +805,7 @@ impl<'src> Typechecker<'src> {
                         Err(TypeError::AlreadyDefined(name))?
                     } else {
                         functions.insert(name, decl_elab);
-                        self.environment.insert(name, scheme);
+                        self.env.insert(name, scheme);
                     }
                 }
             }

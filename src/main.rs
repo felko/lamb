@@ -7,7 +7,7 @@ use bumpalo::Bump;
 
 pub mod surface;
 pub mod core;
-pub mod environment;
+mod env;
 
 use surface::parse_from_file;
 

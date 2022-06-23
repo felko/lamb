@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use core::hash::Hash;
 use core::fmt::Display;
 
-pub struct Environment<K, V> {
+pub struct Env<K, V> {
     top_level: HashMap<K, V>,
     scopes: Vec<HashMap<K, V>>,
 }
 
-impl<K, V> Environment<K, V>
+impl<K, V> Env<K, V>
 where
     K: Hash + Eq,
 {
-    pub fn new() -> Environment<K, V> {
-        Environment {
+    pub fn new() -> Env<K, V> {
+        Env {
             top_level: HashMap::new(),
             scopes: Vec::new(),
         }
@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<K: Display, V: Display> Display for Environment<K, V> {
+impl<K: Display, V: Display> Display for Env<K, V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fn fmt_scope<K: Display, V: Display>(
             f: &mut std::fmt::Formatter<'_>,
