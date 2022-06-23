@@ -1,0 +1,53 @@
+# examples of let generalization from
+# https://okmij.org/ftp/ML/generalization/sound_eager.ml
+
+# id_polymorphic : Int
+def id_polymorphic =
+    let id x = x
+    in id (fun a => a + 1) (id 1)
+
+# id_self_application : ∀ E. E -> E
+def id_self_application =
+    let id x = x
+    in id id
+
+# occurs check fails
+# def max_heibers_example y =
+#     y (fun z => y z)
+
+# example1 : ∀ A. A -> A
+def example1 x =
+    let y = x
+    in y
+# would give ∀ A B. A -> B if the generalization of y
+# wasn't taking levels into account
+
+# example2 : ∀ D C. ((D -> D) -> C) -> C
+def example2 =
+    fun x =>
+        let y =
+            let z = x (fun x => x)
+            in z
+        in y
+
+# example3 : ∀ A C. A -> C -> A
+def example3 x =
+    let y z = x
+    in y
+
+# example4 : ∀ C D. (C -> D) -> C -> D
+def example4 x =
+    let y z = x z
+    in y
+
+# example5 : ∀ F E. (E -> E -> F) -> E -> F
+def example5 x y =
+    let x = x y
+    in x y
+
+# occurs check fails
+# def example6 x =
+#     let y = x
+#     in y y
+# without levels y would be incorrectly generalized
+# to ∀ A. A which makes y y typecheck
