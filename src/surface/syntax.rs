@@ -29,6 +29,7 @@ pub enum Expr<'src> {
         cont: Box<Expr<'src>>,
     },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
+    Ann(Box<Expr<'src>>, Type<'src>),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -152,7 +153,10 @@ impl<'src> Display for Expr<'src> {
                     write!(f, " {arg}")?;
                 }
                 write!(f, ")")
-            }
+            },
+            Expr::Ann(expr, type_) => {
+                write!(f, "({expr} : {type_})")
+            },
         }
     }
 }

@@ -96,16 +96,24 @@ Expr0: Expr<'src> = {
 }
 
 Expr1: Expr<'src> = {
-    <lhs: Box<Expr1>> "+" <rhs: Box<Expr2>> => Expr::Add(lhs, rhs),
-    <Expr2>,
+    <expr: Expr2> <ann: (Annotation)?> =>
+        match ann {
+            Some(type_) => Expr::Ann(box expr, type_),
+            None => expr
+        },
 }
 
 Expr2: Expr<'src> = {
-    <callee: Box<Expr3>> <args: (Expr3)+> => Expr::App(callee, args),
+    <lhs: Box<Expr2>> "+" <rhs: Box<Expr3>> => Expr::Add(lhs, rhs),
     <Expr3>,
 }
 
 Expr3: Expr<'src> = {
+    <callee: Box<Expr4>> <args: (Expr4)+> => Expr::App(callee, args),
+    <Expr4>,
+}
+
+Expr4: Expr<'src> = {
     Number => Expr::Lit(<>),
     Identifier => Expr::Var(<>),
     "(" <Expr0> ")" => <>,
