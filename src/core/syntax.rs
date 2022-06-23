@@ -73,14 +73,29 @@ impl<'src> Display for Module<'src> {
     }
 }
 
+fn show_type_params<'src>(
+    f: &mut std::fmt::Formatter<'_>,
+    type_params: Vec<String>,
+) -> std::fmt::Result {
+    if !type_params.is_empty() {
+        write!(f, "<{}", type_params[0])?;
+        for i in 1..type_params.len() {
+            write!(f, ", {}", type_params[i])?;
+        }
+        write!(f, ">")
+    } else {
+        Ok(())
+    }
+}
+
 impl<'src> Display for FuncDecl<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "def {} ", self.name)?;
+        write!(f, "def {}", self.name)?;
+        show_type_params(f, self.type_params.clone())?;
         for binding in &self.params {
-            write!(f, "{binding} ")?;
+            write!(f, " {binding}")?;
         }
-        write!(f, ": {} ", self.return_type)?;
-        write!(f, "= {}", self.body)
+        write!(f, " : {} = {}", self.return_type, self.body)
     }
 }
 
@@ -156,18 +171,12 @@ impl<'src> Display for Expr<'src> {
                 body,
                 cont,
             } => {
-                write!(f, "(let {name} ")?;
-                if !type_params.is_empty() {
-                    write!(f, "<{}", type_params[0])?;
-                    for i in 1..type_params.len() {
-                        write!(f, ", {}", type_params[i])?;
-                    }
-                    write!(f, ">")?;
-                }
+                write!(f, "(let {name}")?;
+                show_type_params(f, type_params.clone())?;
                 for binding in params {
-                    write!(f, "{binding} ")?;
+                    write!(f, " {binding}")?;
                 }
-                write!(f, ": {return_type} = {body} in {cont})")
+                write!(f, " : {return_type} = {body} in {cont})")
             }
             Expr::App(callee, args) => {
                 write!(f, "({callee}")?;
