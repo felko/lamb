@@ -506,7 +506,6 @@ impl<'src> Typechecker<'src> {
                     self.with_scope(&type_params, params, |self_, subst, mut params_elab| {
                         let mut body_elab;
                         let mut body_type;
-                        let mut skolems = HashSet::new();
                         if let Some(return_type) = return_type {
                             body_type = self_.surface_type_to_core_type(subst, return_type);
                             body_elab = self_.check(body, body_type.clone())?;
@@ -514,6 +513,7 @@ impl<'src> Typechecker<'src> {
                             (body_elab, body_type) = self_.infer(body)?;
                         }
                         self_.level -= 1;
+                        let mut skolems = HashSet::new();
                         body_type = self_.generalize(&mut skolems, body_type);
                         params_elab = params_elab
                             .iter()
@@ -554,6 +554,11 @@ impl<'src> Typechecker<'src> {
                     },
                     cont_type,
                 ))
+            },
+            surface::Expr::Ann(box expr, type_) => {
+                let expr_type = self.surface_type_to_core_type(&mut HashMap::new(), type_);
+                let expr_elab = self.check(expr, expr_type.clone())?;
+                Ok((expr_elab, expr_type))
             }
         }?;
         self.indent -= 1;
@@ -698,6 +703,12 @@ impl<'src> Typechecker<'src> {
                     body: box body_elab,
                     cont: box cont_elab,
                 })
+            },
+            (surface::Expr::Ann(box expr, ann_type), expected_type) => {
+                let ann_type = self.surface_type_to_core_type(&mut HashMap::new(), ann_type);
+                self.unify(ann_type, expected_type.clone())?;
+                let expr_elab = self.check(expr, expected_type)?;
+                Ok(expr_elab)
             }
             (expr, expected_type) => {
                 let (expr_elab, expr_type) = self.infer(expr)?;

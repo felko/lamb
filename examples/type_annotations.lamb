@@ -1,0 +1,14 @@
+# annotate_abs_body : Int -> Int
+def annotate_abs_body = fun x => x : Int
+
+# annotate_let_body : Bool -> Bool
+def annotate_let_body x =
+    let y = x
+    in x : Bool
+
+# unification failure: Int !~ Bool
+# def annotate_let_body_wrong x =
+#     let y = x + 1
+#     in x : Bool
+
+def annotate_generic <A> x = x : A
