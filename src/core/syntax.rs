@@ -19,13 +19,13 @@ pub struct FuncDecl<'src> {
     pub body: Expr<'src>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TVar<'src> {
     Unbound { var: UVar, level: u8 },
     Bound(Type<'src>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'src> {
     Name { name: &'src str },
     QVar(String),

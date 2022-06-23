@@ -262,7 +262,7 @@ impl<'src> Typechecker<'src> {
                         var: var2,
                         level: level2,
                     } => {
-                        let min_level = match (*tvar_ref).borrow().clone() {
+                        let min_level = match *(*tvar_ref).borrow() {
                             TVar::Unbound { level, .. } => level.min(level2),
                             _ => level2,
                         };
@@ -284,16 +284,28 @@ impl<'src> Typechecker<'src> {
         }
     }
 
+    fn find(&self, type_: Type<'src>) -> Type<'src> {
+        match type_ {
+            Type::TVar(tvar_ref) => {
+                let tvar = (*tvar_ref).borrow().clone();
+                match tvar {
+                    TVar::Bound(parent) => {
+                        let repr = self.find(parent.clone());
+                        *(*tvar_ref).borrow_mut() = TVar::Bound(repr.clone());
+                        repr
+                    }
+                    _ => Type::TVar(tvar_ref),
+                }
+            }
+            type_ => type_,
+        }
+    }
+
     fn unify(&mut self, lhs: Type<'src>, rhs: Type<'src>) -> Result<(), TypeError<'src>> {
-        println!(
-            "{}─ {} ~ {}, level: {}",
-            "│   ".repeat(self.indent as usize),
-            lhs,
-            rhs,
-            self.level
-        );
+        println!("{}─ {} ~ {}", "│   ".repeat(self.indent as usize), lhs, rhs,);
         self.indent += 1;
-        let result = match (lhs, rhs) {
+        let result = match (self.find(lhs), self.find(rhs)) {
+            (t, u) if t == u => Ok(()),
             (Type::Int, Type::Int) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::QVar(a), Type::QVar(b)) if a == b => Ok(()),
