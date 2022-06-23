@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::core;
-use crate::core::syntax::{Scheme, TVar, Type, UVar};
 use crate::env::Env;
+use crate::core::syntax::{Scheme, TVar, TVarRef, Type, UVar};
 use crate::surface;
 
 type Level = u8;
@@ -32,6 +32,8 @@ fn show_skolems(skolems: &HashSet<String>) -> String {
     s.push('}');
     s
 }
+
+type Instantiation<'src> = HashMap<&'src str, Option<TVarRef<'src>>>;
 
 pub struct Typechecker<'src> {
     pub definitions: HashMap<&'src str, Scheme<'src>>,
@@ -72,6 +74,10 @@ impl<'src> Typechecker<'src> {
         }
     }
 
+    fn fresh_tvar_ref(&mut self) -> TVarRef<'src> {
+        Rc::new(RefCell::new(self.fresh_tvar()))
+    }
+
     fn instantiate_type(
         &mut self,
         subst: &HashMap<String, Type<'src>>,
@@ -107,12 +113,7 @@ impl<'src> Typechecker<'src> {
         let Scheme { variables, type_ } = scheme;
         let subst = variables
             .iter()
-            .map(|var| {
-                (
-                    var.clone(),
-                    Type::TVar(Rc::new(RefCell::new(self.fresh_tvar()))),
-                )
-            })
+            .map(|var| (var.clone(), Type::TVar(self.fresh_tvar_ref())))
             .collect();
         self.instantiate_type(&subst, type_)
     }
@@ -248,7 +249,7 @@ impl<'src> Typechecker<'src> {
         expr_gen
     }
 
-    fn occurs_check(&self, tvar_ref: Rc<RefCell<TVar<'src>>>, type_: Type<'src>) -> bool {
+    fn occurs_check(&self, tvar_ref: TVarRef<'src>, type_: Type<'src>) -> bool {
         match type_ {
             Type::Int => true,
             Type::Bool => true,
@@ -350,16 +351,16 @@ impl<'src> Typechecker<'src> {
 
     fn surface_type_to_core_type(
         &mut self,
-        subst: &mut HashMap<&'src str, Option<Rc<RefCell<TVar<'src>>>>>,
+        subst: &mut Instantiation<'src>,
         type_: surface::Type<'src>,
     ) -> Type<'src> {
         match type_ {
             surface::Type::Name(name) => match subst.get_mut(&name) {
                 Some(Some(tvar)) => Type::TVar(tvar.clone()),
                 Some(tvar_ref) => {
-                    let tvar = Rc::new(RefCell::new(self.fresh_tvar()));
-                    *tvar_ref = Some(tvar.clone());
-                    Type::TVar(tvar)
+                    let tvar_ref2 = self.fresh_tvar_ref();
+                    *tvar_ref = Some(tvar_ref2.clone());
+                    Type::TVar(tvar_ref2)
                 }
                 None => Type::Name { name },
             },

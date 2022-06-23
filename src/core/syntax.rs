@@ -25,11 +25,13 @@ pub enum TVar<'src> {
     Bound(Type<'src>),
 }
 
+pub type TVarRef<'src> = Rc<RefCell<TVar<'src>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'src> {
     Name { name: &'src str },
     QVar(String),
-    TVar(Rc<RefCell<TVar<'src>>>),
+    TVar(TVarRef<'src>),
     Func(Vec<Type<'src>>, Box<Type<'src>>),
     Int,
     Bool,
