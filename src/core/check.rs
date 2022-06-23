@@ -18,21 +18,6 @@ pub enum TypeError<'src> {
     AlreadyDefined(&'src str),
 }
 
-#[allow(dead_code)]
-fn show_skolems(skolems: &HashSet<String>) -> String {
-    let mut s = "{".to_owned();
-    let skolems = Vec::from_iter(skolems.iter().cloned());
-    if !skolems.is_empty() {
-        s.push_str(&skolems[0].as_ref());
-        for i in 1..skolems.len() {
-            s.push_str(", ");
-            s.push_str(&skolems[i].as_ref());
-        }
-    }
-    s.push('}');
-    s
-}
-
 type Instantiation<'src> = HashMap<&'src str, Option<TVarRef<'src>>>;
 
 pub struct Typechecker<'src> {
@@ -132,15 +117,7 @@ impl<'src> Typechecker<'src> {
     }
 
     fn generalize(&mut self, skolems: &mut HashSet<String>, type_: Type<'src>) -> Type<'src> {
-        // println!(
-        //     "{}┬ generalizing {}, variables: {}, level: {}",
-        //     "│   ".repeat(self.indent as usize),
-        //     type_,
-        //     show_skolems(&skolems),
-        //     self.level,
-        // );
-        self.indent += 1;
-        let type_gen = match type_ {
+        match type_ {
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
             Type::Name { name } => Type::Name { name },
@@ -165,16 +142,7 @@ impl<'src> Typechecker<'src> {
                 let gen_return_type = self.generalize(skolems, return_type);
                 Type::Func(gen_param_types, box gen_return_type)
             }
-        };
-        self.indent -= 1;
-        // println!(
-        //     "{}└ generalized into {}, variables: {}, level: {}",
-        //     "│   ".repeat(self.indent as usize),
-        //     type_gen.clone(),
-        //     show_skolems(&skolems),
-        //     self.level,
-        // );
-        type_gen
+        }
     }
 
     fn generalize_expr(
@@ -182,15 +150,7 @@ impl<'src> Typechecker<'src> {
         skolems: &mut HashSet<String>,
         expr: core::Expr<'src>,
     ) -> core::Expr<'src> {
-        // println!(
-        //     "{}┬ generalizing {}, variables: {}, level: {}",
-        //     "│   ".repeat(self.indent as usize),
-        //     expr,
-        //     show_skolems(&skolems),
-        //     self.level,
-        // );
-        self.indent += 1;
-        let expr_gen = match expr {
+        match expr {
             core::Expr::Lit(value) => core::Expr::Lit(value),
             core::Expr::Var(name) => core::Expr::Var(name),
             core::Expr::Add(box lhs, box rhs) => core::Expr::Add(
@@ -237,16 +197,7 @@ impl<'src> Typechecker<'src> {
                 body: box self.generalize_expr(skolems, body),
                 cont: box self.generalize_expr(skolems, cont),
             },
-        };
-        self.indent -= 1;
-        // println!(
-        //     "{}└ generalized into {}, variables: {}, level: {}",
-        //     "│   ".repeat(self.indent as usize),
-        //     expr_gen.clone(),
-        //     show_skolems(&skolems),
-        //     self.level,
-        // );
-        expr_gen
+        }
     }
 
     fn occurs_check(&self, tvar_ref: TVarRef<'src>, type_: Type<'src>) -> bool {
@@ -303,9 +254,7 @@ impl<'src> Typechecker<'src> {
     }
 
     fn unify(&mut self, lhs: Type<'src>, rhs: Type<'src>) -> Result<(), TypeError<'src>> {
-        println!("{}─ {} ~ {}", "│   ".repeat(self.indent as usize), lhs, rhs,);
-        self.indent += 1;
-        let result = match (self.find(lhs), self.find(rhs)) {
+        match (self.find(lhs), self.find(rhs)) {
             (t, u) if t == u => Ok(()),
             (Type::Int, Type::Int) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
@@ -344,9 +293,7 @@ impl<'src> Typechecker<'src> {
                 }
             }
             (lhs, rhs) => Err(TypeError::UnificationFailure(lhs, rhs)),
-        };
-        self.indent -= 1;
-        result
+        }
     }
 
     fn surface_type_to_core_type(
@@ -442,14 +389,7 @@ impl<'src> Typechecker<'src> {
         &mut self,
         expr: surface::Expr<'src>,
     ) -> Result<(core::Expr<'src>, Type<'src>), TypeError<'src>> {
-        println!(
-            "{}┬ {} ⊢ {} ⇑ ?",
-            "│   ".repeat(self.indent as usize),
-            self.env,
-            expr,
-        );
-        self.indent += 1;
-        let (expr_elab, expr_type) = match expr {
+        match expr {
             surface::Expr::Lit(value) => Ok((core::Expr::Lit(value), Type::Int)),
             surface::Expr::Var(name) => {
                 if let Some(scheme) = self.env.lookup(name) {
@@ -584,43 +524,15 @@ impl<'src> Typechecker<'src> {
                 let expr_elab = self.check(expr, expr_type.clone())?;
                 Ok((expr_elab, expr_type))
             }
-        }?;
-        self.indent -= 1;
-        println!(
-            "{}└ {} ⊢ {} ⇑ {}",
-            "│   ".repeat(self.indent as usize),
-            self.env,
-            expr_elab,
-            expr_type,
-        );
-        Ok((expr_elab, expr_type))
+        }
     }
 
     fn check(
         &mut self,
         expr: surface::Expr<'src>,
-        mut type_: Type<'src>,
+        type_: Type<'src>,
     ) -> Result<core::Expr<'src>, TypeError<'src>> {
-        type_ = match type_ {
-            Type::TVar(var) => {
-                let tvar = (*var).borrow().clone();
-                match tvar {
-                    TVar::Bound(type_) => type_,
-                    TVar::Unbound { .. } => Type::TVar(var),
-                }
-            }
-            type_ => type_,
-        };
-        println!(
-            "{}┬ {} ⊢ {} ⇓ {}, level: {}",
-            "│   ".repeat(self.indent as usize),
-            self.env,
-            expr,
-            type_,
-            self.level,
-        );
-        self.indent += 1;
-        let expr_elab = match (expr, self.find(type_.clone())) {
+        match (expr, self.find(type_)) {
             (surface::Expr::Lit(value), Type::Int) => Ok(core::Expr::Lit(value)),
             (surface::Expr::Var(name), expected_type) => {
                 if let Some(scheme) = self.env.lookup(name) {
@@ -801,16 +713,7 @@ impl<'src> Typechecker<'src> {
                 self.unify(expr_type, expected_type)?;
                 Ok(expr_elab)
             }
-        }?;
-        self.indent -= 1;
-        println!(
-            "{}└ {} ⊢ {} ⇓ {}",
-            "│   ".repeat(self.indent as usize),
-            self.env,
-            expr_elab,
-            type_,
-        );
-        Ok(expr_elab)
+        }
     }
 
     pub fn infer_expr(
