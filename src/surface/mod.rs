@@ -50,28 +50,3 @@ pub fn parse_from_file<'src>(
         .map_err(Error::ParseError)
 }
 
-#[cfg(test)]
-mod test {
-    use crate::surface::{parse_from_str, syntax::Expr::*};
-
-    #[test]
-    fn test_parser() {
-        if let Ok(expr) = parse_from_str("1+2+3+4+100") {
-            assert_eq!(
-                expr,
-                Add(
-                    Box::new(Add(
-                        Box::new(Add(
-                            Box::new(Add(Box::new(Lit(1)), Box::new(Lit(2)))),
-                            Box::new(Lit(3))
-                        )),
-                        Box::new(Lit(4))
-                    )),
-                    Box::new(Lit(100))
-                )
-            )
-        } else {
-            assert!(false);
-        }
-    }
-}

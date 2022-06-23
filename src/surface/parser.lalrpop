@@ -12,6 +12,9 @@ extern {
     enum Token<'src> {
         "(" => Token::LParen,
         ")" => Token::RParen,
+        "<" => Token::LAngle,
+        ">" => Token::RAngle,
+        "," => Token::Comma,
         ":" => Token::Colon,
         "=" => Token::Equal,
         "->" => Token::Arrow,
@@ -30,8 +33,22 @@ extern {
 
 Box<T>: Box<T> = T => Box::new(<>);
 
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+TypeParamList: Vec<&'src str> = "<" <type_params: Comma<Identifier>> ">" => type_params;
+
+TypeParamsOpt: Vec<&'src str> = <type_params_opt: (TypeParamList)?> => type_params_opt.unwrap_or_else(|| Vec::new());
+
 Decl: Decl<'src> = {
-    "def" <name: Identifier> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Expr0> => Decl::Func {name, params, return_type, body },
+    "def" <name: Identifier> <type_params: TypeParamsOpt> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Expr> => Decl::Func {name, type_params, params, return_type, body },
 }
 
 pub Module: Module<'src> = {
@@ -54,7 +71,7 @@ Type0: Type<'src> = {
 Type1: Type<'src> = {
     "Int" => Type::Int,
     "Bool" => Type::Bool,
-    <name: Identifier> => Type::Var(name),
+    <name: Identifier> => Type::Name(name),
     "(" <Type0> ")" => <>,
 }
 
@@ -74,7 +91,7 @@ pub Expr = Expr0;
 
 Expr0: Expr<'src> = {
     "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
-    "let" <name: Identifier> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Box<Expr0>> "in" <cont: Box<Expr0>> => Expr::Let {name, params, return_type, body, cont },
+    "let" <name: Identifier> <type_params: TypeParamsOpt> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Box<Expr0>> "in" <cont: Box<Expr0>> => Expr::Let {name, type_params, params, return_type, body, cont },
     <Expr1>,
 }
 

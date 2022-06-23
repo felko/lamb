@@ -18,6 +18,12 @@ pub enum TokenType {
     LParen,
     #[token(")")]
     RParen,
+    #[token("<")]
+    LAngle,
+    #[token(">")]
+    RAngle,
+    #[token(",")]
+    Comma,
     #[token(":")]
     Colon,
     #[token("=")]
@@ -60,6 +66,9 @@ pub enum TokenType {
 pub enum Token<'src> {
     LParen,
     RParen,
+    LAngle,
+    RAngle,
+    Comma,
     Colon,
     Equal,
     Arrow,
@@ -114,6 +123,9 @@ impl<'src> Lexer<'src> {
             TokenType::Error => Err(Error::InvalidToken(self.logos.span())),
             TokenType::LParen => Ok(Token::LParen),
             TokenType::RParen => Ok(Token::RParen),
+            TokenType::LAngle => Ok(Token::LAngle),
+            TokenType::RAngle => Ok(Token::RAngle),
+            TokenType::Comma => Ok(Token::Comma),
             TokenType::Colon => Ok(Token::Colon),
             TokenType::Equal => Ok(Token::Equal),
             TokenType::Arrow => Ok(Token::Arrow),
