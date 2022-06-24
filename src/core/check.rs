@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::core;
-use crate::env::Env;
 use crate::core::syntax::{Scheme, TVar, TVarRef, Type, UVar};
+use crate::env::Env;
 use crate::surface;
 
 type Level = u8;
@@ -94,13 +94,14 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    fn instantiate(&mut self, scheme: Scheme<'src>) -> Type<'src> {
+    fn instantiate(&mut self, scheme: Scheme<'src>) -> (Type<'src>, Vec<Type<'src>>) {
         let Scheme { variables, type_ } = scheme;
-        let subst = variables
-            .iter()
-            .map(|var| (var.clone(), Type::TVar(self.fresh_tvar_ref())))
-            .collect();
-        self.instantiate_type(&subst, type_)
+        let mut type_params = Vec::new();
+        for _ in 0..variables.len() {
+            type_params.push(Type::TVar(self.fresh_tvar_ref()));
+        }
+        let subst = variables.iter().cloned().zip(type_params.clone()).collect();
+        (self.instantiate_type(&subst, type_), type_params)
     }
 
     fn generate_rigid_var_name(&self, uvar: UVar) -> String {
@@ -152,18 +153,25 @@ impl<'src> Typechecker<'src> {
     ) -> core::Expr<'src> {
         match expr {
             core::Expr::Lit(value) => core::Expr::Lit(value),
-            core::Expr::Var(name) => core::Expr::Var(name),
+            core::Expr::Var { name, type_args } => core::Expr::Var {
+                name,
+                type_args: type_args
+                    .iter()
+                    .map(|type_arg| self.generalize(skolems, type_arg.clone()))
+                    .collect(),
+            },
             core::Expr::Add(box lhs, box rhs) => core::Expr::Add(
                 box self.generalize_expr(skolems, lhs),
                 box self.generalize_expr(skolems, rhs),
             ),
-            core::Expr::App(box callee, args) => core::Expr::App(
-                box self.generalize_expr(skolems, callee),
-                args.iter()
+            core::Expr::App { box callee, args } => core::Expr::App {
+                callee: box self.generalize_expr(skolems, callee),
+                args: args
+                    .iter()
                     .cloned()
                     .map(|arg| self.generalize_expr(skolems, arg))
                     .collect(),
-            ),
+            },
             core::Expr::Abs(params, box body) => core::Expr::Abs(
                 params
                     .iter()
@@ -393,7 +401,8 @@ impl<'src> Typechecker<'src> {
             surface::Expr::Lit(value) => Ok((core::Expr::Lit(value), Type::Int)),
             surface::Expr::Var(name) => {
                 if let Some(scheme) = self.env.lookup(name) {
-                    Ok((core::Expr::Var(name), self.instantiate(scheme.clone())))
+                    let (instantiated, type_args) = self.instantiate(scheme.clone());
+                    Ok((core::Expr::Var { name, type_args }, instantiated))
                 } else {
                     Err(TypeError::ScopeError(name))
                 }
@@ -413,7 +422,7 @@ impl<'src> Typechecker<'src> {
                     .iter()
                     .map(|var| Type::TVar(Rc::clone(&var)))
                     .collect();
-                let return_var = Rc::new(RefCell::new(self.fresh_tvar()));
+                let return_var = self.fresh_tvar_ref();
                 self.unify(
                     callee_type,
                     Type::Func(param_types, box Type::TVar(Rc::clone(&return_var))),
@@ -424,7 +433,10 @@ impl<'src> Typechecker<'src> {
                     args_elab.push(arg_elab);
                 }
                 Ok((
-                    core::Expr::App(box callee_elab, args_elab),
+                    core::Expr::App {
+                        callee: box callee_elab,
+                        args: args_elab,
+                    },
                     Type::TVar(return_var),
                 ))
             }
@@ -454,7 +466,7 @@ impl<'src> Typechecker<'src> {
                 // infer let-bound expression
                 let (type_params, params_elab, body_type, body_elab) = {
                     self.level += 1;
-                     let mut subst = HashMap::from_iter(
+                    let mut subst = HashMap::from_iter(
                         type_params
                             .iter()
                             .map(|type_param| (type_param.clone(), None)),
@@ -536,9 +548,9 @@ impl<'src> Typechecker<'src> {
             (surface::Expr::Lit(value), Type::Int) => Ok(core::Expr::Lit(value)),
             (surface::Expr::Var(name), expected_type) => {
                 if let Some(scheme) = self.env.lookup(name) {
-                    let var_type = self.instantiate(scheme.clone());
+                    let (var_type, type_args) = self.instantiate(scheme.clone());
                     self.unify(var_type, expected_type)?;
-                    Ok(core::Expr::Var(name))
+                    Ok(core::Expr::Var { name, type_args })
                 } else {
                     Err(TypeError::ScopeError(name))
                 }
@@ -563,7 +575,10 @@ impl<'src> Typechecker<'src> {
                     let arg_elab = self.check(arg, param_type)?;
                     args_elab.push(arg_elab);
                 }
-                Ok(core::Expr::App(box callee_elab, args_elab))
+                Ok(core::Expr::App {
+                    callee: box callee_elab,
+                    args: args_elab,
+                })
             }
             (surface::Expr::Abs(mut params, body), Type::Func(mut param_types, return_type)) => {
                 let param_count = params.len();
@@ -640,7 +655,7 @@ impl<'src> Typechecker<'src> {
                 // infer let-bound expression
                 let (type_params, params_elab, body_type, body_elab) = {
                     self.level += 1;
-                     let mut subst = HashMap::from_iter(
+                    let mut subst = HashMap::from_iter(
                         type_params
                             .iter()
                             .map(|type_param| (type_param.clone(), None)),
@@ -749,14 +764,15 @@ impl<'src> Typechecker<'src> {
                 } => {
                     let (decl_elab, scheme) = {
                         self.level += 1;
-                         let mut subst = HashMap::from_iter(
+                        let mut subst = HashMap::from_iter(
                             type_params
                                 .iter()
                                 .map(|type_param| (type_param.clone(), None)),
                         );
                         let mut params_elab = self.elab_params(&mut subst, params);
                         self.new_scope_with_params(params_elab.clone());
-                        let (mut body_elab, mut body_type) = if let Some(return_type) = return_type {
+                        let (mut body_elab, mut body_type) = if let Some(return_type) = return_type
+                        {
                             let body_type = self.surface_type_to_core_type(&mut subst, return_type);
                             let body_elab = self.check(body, body_type.clone())?;
                             Ok((body_elab, body_type))
@@ -777,7 +793,7 @@ impl<'src> Typechecker<'src> {
                             .collect();
                         body_elab = self.generalize_expr(&mut skolems, body_elab);
                         let type_params = Vec::from_iter(skolems);
-                        
+
                         Ok((
                             core::FuncDecl {
                                 name,
