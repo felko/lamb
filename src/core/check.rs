@@ -1,10 +1,9 @@
-use std::cell::RefCell;
+use slotmap::{SecondaryMap, SlotMap};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::collections::HashMap;
 
 use crate::core;
-use crate::core::syntax::{Scheme, TVar, TVarRef, Type, UVar};
+use crate::core::syntax::{Scheme, TVar, TVarKey, Type};
 use crate::env::Env;
 use crate::surface;
 
@@ -13,19 +12,19 @@ type Level = u8;
 #[derive(Debug)]
 pub enum TypeError<'src> {
     ScopeError(&'src str),
-    OccursCheckFailure(TVar<'src>, Type<'src>),
+    OccursCheckFailure(TVarKey, Type<'src>),
     UnificationFailure(Type<'src>, Type<'src>),
     AlreadyDefined(&'src str),
 }
 
-type Instantiation<'src> = HashMap<&'src str, Option<TVarRef<'src>>>;
+type Instantiation<'src> = HashMap<&'src str, Option<TVarKey>>;
 
 pub struct Typechecker<'src> {
     pub definitions: HashMap<&'src str, Scheme<'src>>,
     pub env: Env<&'src str, Scheme<'src>>,
     pub level: Level,
-    pub uvar_supply: UVar,
-    indent: u8,
+    pub bindings: SlotMap<TVarKey, TVar<'src>>,
+    tvar_supply: u32,
 }
 
 impl<'src> Typechecker<'src> {
@@ -34,33 +33,26 @@ impl<'src> Typechecker<'src> {
             definitions: HashMap::new(),
             env: Env::new(),
             level: 0,
-            uvar_supply: 0,
-            indent: 0,
+            bindings: SlotMap::with_key(),
+            tvar_supply: 0,
         }
     }
 
     pub fn reset(&mut self) {
         self.env.clear();
         self.level = 0;
-        self.uvar_supply = 0;
-        self.indent = 0;
+        self.bindings.clear();
+        self.tvar_supply = 0;
     }
 
-    fn fresh_uvar(&mut self) -> UVar {
-        let uvar = self.uvar_supply;
-        self.uvar_supply += 1;
-        uvar
-    }
-
-    fn fresh_tvar(&mut self) -> TVar<'src> {
-        TVar::Unbound {
-            var: self.fresh_uvar(),
+    fn fresh_tvar(&mut self) -> TVarKey {
+        let index = self.tvar_supply;
+        let tvar_key = self.bindings.insert(TVar::Unbound {
             level: self.level,
-        }
-    }
-
-    fn fresh_tvar_ref(&mut self) -> TVarRef<'src> {
-        Rc::new(RefCell::new(self.fresh_tvar()))
+            index,
+        });
+        self.tvar_supply += 1;
+        tvar_key
     }
 
     fn instantiate_type(
@@ -74,13 +66,10 @@ impl<'src> Typechecker<'src> {
                 Some(type_) => type_.clone(),
                 None => Type::QVar(name),
             },
-            Type::TVar(var) => {
-                let tvar = (*var).borrow().clone();
-                match tvar {
-                    TVar::Bound(type_) => self.instantiate_type(subst, type_),
-                    TVar::Unbound { .. } => Type::TVar(var),
-                }
-            }
+            Type::TVar(tvar_key) => match &self.bindings[tvar_key] {
+                TVar::Bound(type_) => self.instantiate_type(subst, type_.clone()),
+                TVar::Unbound { .. } => Type::TVar(tvar_key),
+            },
             Type::Func(parameter_types, box return_type) => {
                 let parameter_types = parameter_types
                     .iter()
@@ -98,43 +87,44 @@ impl<'src> Typechecker<'src> {
         let Scheme { variables, type_ } = scheme;
         let mut type_params = Vec::new();
         for _ in 0..variables.len() {
-            type_params.push(Type::TVar(self.fresh_tvar_ref()));
+            type_params.push(Type::TVar(self.fresh_tvar()));
         }
         let subst = variables.iter().cloned().zip(type_params.clone()).collect();
         (self.instantiate_type(&subst, type_), type_params)
     }
 
-    fn generate_rigid_var_name(&self, uvar: UVar) -> String {
+    fn generate_rigid_var_name(&self, tvar_index: u32) -> String {
         let mut var_name = String::new();
-        if uvar < 26 {
+        if tvar_index < 26 {
             var_name.push(
-                std::char::from_u32(u8::try_from('A').unwrap() as u32 + uvar as u32).unwrap(),
+                std::char::from_u32(u8::try_from('A').unwrap() as u32 + tvar_index as u32).unwrap(),
             );
         } else {
             var_name.push('A');
-            var_name.push_str(uvar.to_string().as_ref());
+            var_name.push_str(tvar_index.to_string().as_ref());
         }
         var_name
     }
 
-    fn generalize(&mut self, skolems: &mut HashSet<String>, type_: Type<'src>) -> Type<'src> {
+    fn generalize(
+        &mut self,
+        skolems: &mut SecondaryMap<TVarKey, String>,
+        type_: Type<'src>,
+    ) -> Type<'src> {
         match type_ {
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
             Type::Name { name } => Type::Name { name },
             Type::QVar(name) => Type::QVar(name),
-            Type::TVar(tvar_ref) => {
-                let tvar = (*tvar_ref).borrow().clone();
-                match tvar {
-                    TVar::Bound(type_) => self.generalize(skolems, type_),
-                    TVar::Unbound { var, level } if level > self.level => {
-                        let var_name = self.generate_rigid_var_name(var);
-                        skolems.insert(var_name.clone());
-                        Type::QVar(var_name)
-                    }
-                    _ => Type::TVar(tvar_ref),
+            Type::TVar(tvar_key) => match &self.bindings[tvar_key].clone() {
+                TVar::Bound(type_) => self.generalize(skolems, type_.clone()),
+                TVar::Unbound { index, level } if *level > self.level => {
+                    let var_name = self.generate_rigid_var_name(*index);
+                    skolems.insert(tvar_key, var_name.clone());
+                    Type::QVar(var_name)
                 }
-            }
+                _ => Type::TVar(tvar_key),
+            },
             Type::Func(param_types, box return_type) => {
                 let gen_param_types = param_types
                     .iter()
@@ -148,7 +138,7 @@ impl<'src> Typechecker<'src> {
 
     fn generalize_expr(
         &mut self,
-        skolems: &mut HashSet<String>,
+        skolems: &mut SecondaryMap<TVarKey, String>,
         expr: core::Expr<'src>,
     ) -> core::Expr<'src> {
         match expr {
@@ -208,55 +198,55 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    fn occurs_check(&self, tvar_ref: TVarRef<'src>, type_: Type<'src>) -> bool {
+    fn occurs_check(&mut self, tvar_key: TVarKey, type_: Type<'src>) -> bool {
         match type_ {
             Type::Int => true,
             Type::Bool => true,
             Type::Name { .. } => true,
             Type::QVar(_) => true,
-            Type::TVar(tvar_ref2) if Rc::ptr_eq(&tvar_ref, &tvar_ref2) => false,
-            Type::TVar(tvar_ref2) => {
-                let tvar2 = (*tvar_ref2).borrow().clone();
-                match tvar2 {
+            Type::TVar(tvar_key2) if tvar_key == tvar_key2 => false,
+            Type::TVar(tvar_key2) => {
+                let [tvar_ref, tvar_ref2] = unsafe {
+                    self.bindings
+                        .get_disjoint_unchecked_mut([tvar_key, tvar_key2])
+                };
+                match (*tvar_ref2).clone() {
                     TVar::Unbound {
-                        var: var2,
                         level: level2,
+                        index,
                     } => {
-                        let min_level = match *(*tvar_ref).borrow() {
+                        let min_level = match *tvar_ref {
                             TVar::Unbound { level, .. } => level.min(level2),
                             _ => level2,
                         };
-                        *(*tvar_ref2).borrow_mut() = TVar::Unbound {
-                            var: var2,
+                        *tvar_ref2 = TVar::Unbound {
                             level: min_level,
+                            index,
                         };
                         true
                     }
-                    TVar::Bound(type_) => self.occurs_check(tvar_ref, type_),
+                    TVar::Bound(type_) => self.occurs_check(tvar_key, type_.clone()),
                 }
             }
             Type::Func(param_types, box return_type) => {
                 param_types
                     .iter()
-                    .all(|param_type| self.occurs_check(tvar_ref.clone(), param_type.clone()))
-                    && self.occurs_check(tvar_ref, return_type)
+                    .all(|param_type| self.occurs_check(tvar_key, param_type.clone()))
+                    && self.occurs_check(tvar_key, return_type)
             }
         }
     }
 
-    fn find(&self, type_: Type<'src>) -> Type<'src> {
+    fn find(&mut self, type_: Type<'src>) -> Type<'src> {
         match type_ {
-            Type::TVar(tvar_ref) => {
-                let tvar = (*tvar_ref).borrow().clone();
-                match tvar {
-                    TVar::Bound(parent) => {
-                        let repr = self.find(parent.clone());
-                        *(*tvar_ref).borrow_mut() = TVar::Bound(repr.clone());
-                        repr
-                    }
-                    _ => Type::TVar(tvar_ref),
+            Type::TVar(tvar_key) => match &self.bindings[tvar_key] {
+                TVar::Bound(parent) => {
+                    let repr = self.find(parent.clone());
+                    self.bindings[tvar_key] = TVar::Bound(repr.clone());
+                    repr
                 }
-            }
+                _ => Type::TVar(tvar_key),
+            },
             type_ => type_,
         }
     }
@@ -267,18 +257,17 @@ impl<'src> Typechecker<'src> {
             (Type::Int, Type::Int) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::QVar(a), Type::QVar(b)) if a == b => Ok(()),
-            (Type::TVar(tvar_ref), type_) | (type_, Type::TVar(tvar_ref)) => {
-                let tvar = (*tvar_ref).borrow().clone();
-                match tvar {
+            (Type::TVar(tvar_key), type_) | (type_, Type::TVar(tvar_key)) => {
+                match &self.bindings[tvar_key] {
                     TVar::Unbound { .. } => {
-                        if self.occurs_check(tvar_ref.clone(), type_.clone()) {
-                            *(*tvar_ref).borrow_mut() = TVar::Bound(type_);
+                        if self.occurs_check(tvar_key, type_.clone()) {
+                            self.bindings[tvar_key] = TVar::Bound(type_);
                             Ok(())
                         } else {
-                            Err(TypeError::OccursCheckFailure(tvar.clone(), type_))
+                            Err(TypeError::OccursCheckFailure(tvar_key, type_))
                         }
                     }
-                    TVar::Bound(bound_type) => self.unify(bound_type, type_),
+                    TVar::Bound(bound_type) => self.unify(bound_type.clone(), type_),
                 }
             }
             (Type::Func(params1, box ret1), Type::Func(params2, box ret2)) => {
@@ -311,11 +300,11 @@ impl<'src> Typechecker<'src> {
     ) -> Type<'src> {
         match type_ {
             surface::Type::Name(name) => match subst.get_mut(&name) {
-                Some(Some(tvar)) => Type::TVar(tvar.clone()),
+                Some(Some(tvar_key)) => Type::TVar(*tvar_key),
                 Some(tvar_ref) => {
-                    let tvar_ref2 = self.fresh_tvar_ref();
-                    *tvar_ref = Some(tvar_ref2.clone());
-                    Type::TVar(tvar_ref2)
+                    let tvar_key2 = self.fresh_tvar();
+                    *tvar_ref = Some(tvar_key2);
+                    Type::TVar(tvar_key2)
                 }
                 None => Type::Name { name },
             },
@@ -339,12 +328,12 @@ impl<'src> Typechecker<'src> {
     ) -> core::Binding<'src> {
         match param {
             surface::Binding::Inferred(name) => {
-                let param_type = self.fresh_tvar_ref();
+                let param_type = self.fresh_tvar();
                 self.env.insert(
                     name,
                     Scheme {
                         variables: Vec::new(),
-                        type_: Type::TVar(Rc::clone(&param_type)),
+                        type_: Type::TVar(param_type),
                     },
                 );
                 core::Binding {
@@ -414,18 +403,15 @@ impl<'src> Typechecker<'src> {
             }
             surface::Expr::App(box callee, args) => {
                 let (callee_elab, callee_type) = self.infer(callee)?;
-                let mut param_vars: Vec<Rc<RefCell<TVar<'src>>>> = Vec::new();
+                let mut param_vars: Vec<TVarKey> = Vec::new();
                 for _ in 0..args.len() {
-                    param_vars.push(Rc::new(RefCell::new(self.fresh_tvar())));
+                    param_vars.push(self.fresh_tvar());
                 }
-                let param_types = param_vars
-                    .iter()
-                    .map(|var| Type::TVar(Rc::clone(&var)))
-                    .collect();
-                let return_var = self.fresh_tvar_ref();
+                let param_types = param_vars.iter().map(|var| Type::TVar(*var)).collect();
+                let return_var = self.fresh_tvar();
                 self.unify(
                     callee_type,
-                    Type::Func(param_types, box Type::TVar(Rc::clone(&return_var))),
+                    Type::Func(param_types, box Type::TVar(return_var)),
                 )?;
                 let mut args_elab = Vec::new();
                 for (arg, param_type) in args.into_iter().zip(param_vars) {
@@ -485,7 +471,7 @@ impl<'src> Typechecker<'src> {
                     self.level -= 1;
 
                     // generalize inferred or checked type
-                    let mut skolems = HashSet::new();
+                    let mut skolems = SecondaryMap::new();
                     body_type = self.generalize(&mut skolems, body_type);
                     params_elab = params_elab
                         .iter()
@@ -496,7 +482,13 @@ impl<'src> Typechecker<'src> {
                         .collect();
                     body_elab = self.generalize_expr(&mut skolems, body_elab);
 
-                    Ok((Vec::from_iter(skolems), params_elab, body_type, body_elab))
+                    let mut type_params = Vec::new();
+                    for (tvar_key, type_param) in skolems {
+                        self.bindings.remove(tvar_key);
+                        type_params.push(type_param);
+                    }
+
+                    Ok((type_params, params_elab, body_type, body_elab))
                 }?;
                 self.env.new_scope();
                 let type_ = if params_elab.is_empty() {
@@ -562,10 +554,8 @@ impl<'src> Typechecker<'src> {
             }
             (surface::Expr::App(box callee, args), expected_type) => {
                 let (callee_elab, callee_type) = self.infer(callee)?;
-                let param_types: Vec<Type<'src>> = args
-                    .iter()
-                    .map(|_| Type::TVar(Rc::new(RefCell::new(self.fresh_tvar()))))
-                    .collect();
+                let param_types: Vec<Type<'src>> =
+                    args.iter().map(|_| Type::TVar(self.fresh_tvar())).collect();
                 self.unify(
                     callee_type,
                     Type::Func(param_types.iter().cloned().collect(), box expected_type),
@@ -674,7 +664,7 @@ impl<'src> Typechecker<'src> {
                     self.level -= 1;
 
                     // generalize inferred or checked type
-                    let mut skolems = HashSet::new();
+                    let mut skolems = SecondaryMap::new();
                     body_type = self.generalize(&mut skolems, body_type);
                     params_elab = params_elab
                         .iter()
@@ -685,7 +675,13 @@ impl<'src> Typechecker<'src> {
                         .collect();
                     body_elab = self.generalize_expr(&mut skolems, body_elab);
 
-                    Ok((Vec::from_iter(skolems), params_elab, body_type, body_elab))
+                    let mut type_params = Vec::new();
+                    for (tvar_key, type_param) in skolems {
+                        self.bindings.remove(tvar_key);
+                        type_params.push(type_param);
+                    }
+
+                    Ok((type_params, params_elab, body_type, body_elab))
                 }?;
                 self.env.new_scope();
                 let type_ = if params_elab.is_empty() {
@@ -738,11 +734,18 @@ impl<'src> Typechecker<'src> {
         self.level += 1;
         let (mut expr_elab, mut expr_type) = self.infer(expr)?;
         self.level -= 1;
-        let mut skolems = HashSet::new();
+        let mut skolems = SecondaryMap::new();
         expr_elab = self.generalize_expr(&mut skolems, expr_elab);
         expr_type = self.generalize(&mut skolems, expr_type);
+
+        let mut type_params = Vec::new();
+        for (tvar_key, type_param) in skolems {
+            self.bindings.remove(tvar_key);
+            type_params.push(type_param);
+        }
+
         let scheme = Scheme {
-            variables: Vec::from_iter(skolems),
+            variables: type_params,
             type_: expr_type,
         };
         Ok((expr_elab, scheme))
@@ -782,7 +785,7 @@ impl<'src> Typechecker<'src> {
                         self.env.pop_scope();
                         self.level -= 1;
 
-                        let mut skolems = HashSet::new();
+                        let mut skolems = SecondaryMap::new();
                         body_type = self.generalize(&mut skolems, body_type);
                         params_elab = params_elab
                             .iter()
@@ -792,7 +795,12 @@ impl<'src> Typechecker<'src> {
                             })
                             .collect();
                         body_elab = self.generalize_expr(&mut skolems, body_elab);
-                        let type_params = Vec::from_iter(skolems);
+
+                        let mut type_params = Vec::new();
+                        for (tvar_key, type_param) in skolems {
+                            self.bindings.remove(tvar_key);
+                            type_params.push(type_param);
+                        }
 
                         Ok((
                             core::FuncDecl {

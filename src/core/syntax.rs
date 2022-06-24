@@ -1,9 +1,11 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::rc::Rc;
 
-pub type UVar = u16;
+use slotmap;
+
+slotmap::new_key_type! {
+    pub struct TVarKey;
+}
 
 #[derive(Debug, Clone)]
 pub struct Module<'src> {
@@ -21,17 +23,15 @@ pub struct FuncDecl<'src> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TVar<'src> {
-    Unbound { var: UVar, level: u8 },
+    Unbound { index: u32, level: u8 },
     Bound(Type<'src>),
 }
-
-pub type TVarRef<'src> = Rc<RefCell<TVar<'src>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'src> {
     Name { name: &'src str },
     QVar(String),
-    TVar(TVarRef<'src>),
+    TVar(TVarKey),
     Func(Vec<Type<'src>>, Box<Type<'src>>),
     Int,
     Bool,
@@ -108,15 +108,6 @@ impl<'src> Display for FuncDecl<'src> {
     }
 }
 
-impl<'src> Display for TVar<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TVar::Unbound { var, .. } => write!(f, "${var}"),
-            TVar::Bound(type_) => type_.fmt(f),
-        }
-    }
-}
-
 impl<'src> Display for Scheme<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.variables.is_empty() {
@@ -136,7 +127,7 @@ impl<'src> Display for Type<'src> {
         match self {
             Type::Name { name } => name.fmt(f),
             Type::QVar(name) => name.fmt(f),
-            Type::TVar(tvar) => tvar.borrow().fmt(f),
+            Type::TVar(tvar_key) => write!(f, "{tvar_key:?}"),
             Type::Func(param_types, return_type) => {
                 write!(f, "(")?;
                 for param_type in param_types {
@@ -190,10 +181,7 @@ impl<'src> Display for Expr<'src> {
                 }
                 write!(f, " : {return_type} = {body} in {cont})")
             }
-            Expr::App {
-                callee,
-                args,
-            } => {
+            Expr::App { callee, args } => {
                 write!(f, "({callee}")?;
                 for arg in args {
                     write!(f, " {arg}")?;
