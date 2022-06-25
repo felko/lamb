@@ -9,16 +9,15 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone)]
 pub struct Module<'src> {
-    pub functions: HashMap<&'src str, FuncDecl<'src>>,
+    pub values: HashMap<&'src str, ValueDecl<'src>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FuncDecl<'src> {
+pub struct ValueDecl<'src> {
     pub name: &'src str,
     pub type_params: Vec<String>,
-    pub params: Vec<Binding<'src>>,
-    pub return_type: Type<'src>,
-    pub body: Expr<'src>,
+    pub type_: Type<'src>,
+    pub value: Expr<'src>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,14 +55,13 @@ pub enum Expr<'src> {
         name: &'src str,
         type_args: Vec<Type<'src>>,
     },
-    Abs(Vec<Binding<'src>>, Box<Expr<'src>>),
+    Abs { params: Vec<Binding<'src>>, return_type: Type<'src>, body: Box<Expr<'src>> },
     Add(Box<Expr<'src>>, Box<Expr<'src>>),
     Let {
         name: &'src str,
         type_params: Vec<String>,
-        params: Vec<Binding<'src>>,
-        return_type: Type<'src>,
-        body: Box<Expr<'src>>,
+        type_: Type<'src>,
+        value: Box<Expr<'src>>,
         cont: Box<Expr<'src>>,
     },
     App {
@@ -74,8 +72,8 @@ pub enum Expr<'src> {
 
 impl<'src> Display for Module<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (_, func) in &self.functions {
-            write!(f, "{func}\n")?;
+        for (_, decl) in &self.values{
+            write!(f, "{decl}\n")?;
         }
         Ok(())
     }
@@ -97,14 +95,11 @@ fn fmt_list<T: Display>(
     }
 }
 
-impl<'src> Display for FuncDecl<'src> {
+impl<'src> Display for ValueDecl<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "def {}", self.name)?;
         fmt_list(f, ("<", ">"), self.type_params.clone())?;
-        for binding in &self.params {
-            write!(f, " {binding}")?;
-        }
-        write!(f, " : {} = {}", self.return_type, self.body)
+        write!(f, " : {} = {}", self.type_, self.value)
     }
 }
 
@@ -155,12 +150,12 @@ impl<'src> Display for Expr<'src> {
                 write!(f, "{name}")?;
                 fmt_list(f, ("<", ">"), type_args.clone())
             }
-            Expr::Abs(params, body) => {
+            Expr::Abs { params, return_type, body } => {
                 write!(f, "(fun ")?;
                 for binding in params {
                     write!(f, "{binding} ")?;
                 }
-                write!(f, "=> ")?;
+                write!(f, ": {return_type} => ")?;
                 write!(f, "{body})")
             }
             Expr::Add(lhs, rhs) => {
@@ -169,17 +164,13 @@ impl<'src> Display for Expr<'src> {
             Expr::Let {
                 name,
                 type_params,
-                params,
-                return_type,
-                body,
+                type_,
+                value,
                 cont,
             } => {
                 write!(f, "(let {name}")?;
                 fmt_list(f, ("<", ">"), type_params.clone())?;
-                for binding in params {
-                    write!(f, " {binding}")?;
-                }
-                write!(f, " : {return_type} = {body} in {cont})")
+                write!(f, " : {type_} = {value} in {cont})")
             }
             Expr::App { callee, args } => {
                 write!(f, "({callee}")?;

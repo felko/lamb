@@ -1,13 +1,14 @@
 #![feature(never_type, box_syntax, box_patterns, let_chains)]
 
-#[macro_use] extern crate lalrpop_util;
+#[macro_use]
+extern crate lalrpop_util;
 
-use clap::Parser;
 use bumpalo::Bump;
+use clap::Parser;
 
-pub mod surface;
 pub mod core;
 mod env;
+pub mod surface;
 
 use surface::parse_from_file;
 
@@ -29,11 +30,14 @@ fn main() {
             let mut tc = core::Typechecker::new();
             match tc.run(module) {
                 Ok(module_elab) => {
+                    println!("Elab:\n{module_elab:?}");
                     println!("Elab:\n{module_elab}");
-                },
-                Err(error) => println!("{error:?}")
+                }
+                Err(error) => {
+                    println!("{error:?}")
+                }
             }
-        },
+        }
         Err(error) => println!("{error:?}"),
     }
 }

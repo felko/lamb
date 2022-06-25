@@ -15,6 +15,7 @@ pub enum TypeError<'src> {
     OccursCheckFailure(TVarKey, Type<'src>),
     UnificationFailure(Type<'src>, Type<'src>),
     AlreadyDefined(&'src str),
+    AmbiguousType(Vec<String>, Type<'src>),
 }
 
 type Instantiation<'src> = HashMap<&'src str, Option<TVarKey>>;
@@ -162,37 +163,38 @@ impl<'src> Typechecker<'src> {
                     .map(|arg| self.generalize_expr(skolems, arg))
                     .collect(),
             },
-            core::Expr::Abs(params, box body) => core::Expr::Abs(
-                params
-                    .iter()
-                    .cloned()
-                    .map(|core::Binding { name, type_ }| core::Binding {
-                        name,
-                        type_: self.generalize(skolems, type_),
-                    })
-                    .collect(),
-                box self.generalize_expr(skolems, body),
-            ),
-            core::Expr::Let {
-                name,
-                type_params,
+            core::Expr::Abs {
                 params,
                 return_type,
                 box body,
+            } => core::Expr::Abs {
+                params: params
+                    .iter()
+                    .cloned()
+                    .map(
+                        |core::Binding {
+                             name,
+                             type_: param_type,
+                         }| core::Binding {
+                            name,
+                            type_: self.generalize(skolems, param_type),
+                        },
+                    )
+                    .collect(),
+                return_type: self.generalize(skolems, return_type),
+                body: box self.generalize_expr(skolems, body),
+            },
+            core::Expr::Let {
+                name,
+                type_params,
+                type_,
+                box value,
                 box cont,
             } => core::Expr::Let {
                 name,
                 type_params,
-                params: params
-                    .iter()
-                    .cloned()
-                    .map(|core::Binding { name, type_ }| core::Binding {
-                        name,
-                        type_: self.generalize(skolems, type_),
-                    })
-                    .collect(),
-                return_type: self.generalize(skolems, return_type),
-                body: box self.generalize_expr(skolems, body),
+                type_: self.generalize(skolems, type_),
+                value: box self.generalize_expr(skolems, value),
                 cont: box self.generalize_expr(skolems, cont),
             },
         }
@@ -437,9 +439,16 @@ impl<'src> Typechecker<'src> {
                         .iter()
                         .map(|binding| binding.type_.clone())
                         .collect(),
-                    box body_type,
+                    box body_type.clone(),
                 );
-                Ok((core::Expr::Abs(params_elab, box body_elab), func_type))
+                Ok((
+                    core::Expr::Abs {
+                        params: params_elab,
+                        return_type: body_type,
+                        body: box body_elab,
+                    },
+                    func_type,
+                ))
             }
             surface::Expr::Let {
                 name,
@@ -450,7 +459,7 @@ impl<'src> Typechecker<'src> {
                 box cont,
             } => {
                 // infer let-bound expression
-                let (type_params, params_elab, body_type, body_elab) = {
+                let (value_elab, scheme) = {
                     self.level += 1;
                     let mut subst = HashMap::from_iter(
                         type_params
@@ -488,36 +497,47 @@ impl<'src> Typechecker<'src> {
                         type_params.push(type_param);
                     }
 
-                    Ok((type_params, params_elab, body_type, body_elab))
+                    if params_elab.is_empty() {
+                        match body_type {
+                            core::Type::Func(_, _) | _ if type_params.is_empty() => Ok((
+                                body_elab,
+                                Scheme {
+                                    variables: type_params,
+                                    type_: body_type,
+                                },
+                            )),
+                            body_type => Err(TypeError::AmbiguousType(type_params, body_type)),
+                        }
+                    } else {
+                        Ok((
+                            core::Expr::Abs {
+                                params: params_elab.clone(),
+                                return_type: body_type.clone(),
+                                body: box body_elab,
+                            },
+                            Scheme {
+                                variables: type_params,
+                                type_: Type::Func(
+                                    params_elab
+                                        .iter()
+                                        .map(|param| param.type_.clone())
+                                        .collect(),
+                                    box body_type,
+                                ),
+                            },
+                        ))
+                    }
                 }?;
                 self.env.new_scope();
-                let type_ = if params_elab.is_empty() {
-                    body_type.clone()
-                } else {
-                    Type::Func(
-                        params_elab
-                            .iter()
-                            .map(|binding| binding.type_.clone())
-                            .collect(),
-                        box body_type.clone(),
-                    )
-                };
-                self.env.insert(
-                    name,
-                    Scheme {
-                        variables: type_params.clone(),
-                        type_,
-                    },
-                );
+                self.env.insert(name, scheme.clone());
                 let (cont_elab, cont_type) = self.infer(cont)?;
                 self.env.pop_scope();
                 Ok((
                     core::Expr::Let {
                         name,
-                        type_params,
-                        params: params_elab,
-                        return_type: body_type,
-                        body: box body_elab,
+                        type_params: scheme.variables,
+                        type_: scheme.type_,
+                        value: box value_elab,
                         cont: box cont_elab,
                     },
                     cont_type,
@@ -643,7 +663,7 @@ impl<'src> Typechecker<'src> {
                 expected_type,
             ) => {
                 // infer let-bound expression
-                let (type_params, params_elab, body_type, body_elab) = {
+                let (value, scheme) = {
                     self.level += 1;
                     let mut subst = HashMap::from_iter(
                         type_params
@@ -681,35 +701,49 @@ impl<'src> Typechecker<'src> {
                         type_params.push(type_param);
                     }
 
-                    Ok((type_params, params_elab, body_type, body_elab))
+                    if params_elab.is_empty() {
+                        match body_type {
+                            core::Type::Func(_, _) | _ if type_params.is_empty() => Ok((
+                                body_elab,
+                                Scheme {
+                                    variables: type_params,
+                                    type_: body_type,
+                                },
+                            )),
+                            body_type => {
+                                Err(TypeError::AmbiguousType(type_params.clone(), body_type))
+                            }
+                        }
+                    } else {
+                        Ok((
+                            core::Expr::Abs {
+                                params: params_elab.clone(),
+                                return_type: body_type.clone(),
+                                body: box body_elab,
+                            },
+                            Scheme {
+                                variables: type_params,
+                                type_: Type::Func(
+                                    params_elab
+                                        .iter()
+                                        .map(|param| param.type_.clone())
+                                        .collect(),
+                                    box body_type,
+                                ),
+                            },
+                        ))
+                    }
                 }?;
+
                 self.env.new_scope();
-                let type_ = if params_elab.is_empty() {
-                    body_type.clone()
-                } else {
-                    Type::Func(
-                        params_elab
-                            .iter()
-                            .map(|binding| binding.type_.clone())
-                            .collect(),
-                        box body_type.clone(),
-                    )
-                };
-                self.env.insert(
-                    name,
-                    Scheme {
-                        variables: type_params.clone(),
-                        type_,
-                    },
-                );
+                self.env.insert(name, scheme.clone());
                 let cont_elab = self.check(cont, expected_type)?;
                 self.env.pop_scope();
                 Ok(core::Expr::Let {
                     name,
-                    type_params,
-                    params: params_elab,
-                    return_type: body_type,
-                    body: box body_elab,
+                    type_params: scheme.variables,
+                    type_: scheme.type_,
+                    value: box value,
                     cont: box cont_elab,
                 })
             }
@@ -755,7 +789,7 @@ impl<'src> Typechecker<'src> {
         &mut self,
         module: surface::Module<'src>,
     ) -> Result<core::Module<'src>, TypeError<'src>> {
-        let mut functions = HashMap::new();
+        let mut values = HashMap::new();
         for decl in module.declarations {
             match decl {
                 surface::Decl::Func {
@@ -765,7 +799,7 @@ impl<'src> Typechecker<'src> {
                     return_type,
                     body,
                 } => {
-                    let (decl_elab, scheme) = {
+                    let decl_elab = {
                         self.level += 1;
                         let mut subst = HashMap::from_iter(
                             type_params
@@ -802,37 +836,59 @@ impl<'src> Typechecker<'src> {
                             type_params.push(type_param);
                         }
 
-                        Ok((
-                            core::FuncDecl {
-                                name,
-                                type_params: type_params.clone(),
-                                params: params_elab.clone(),
-                                return_type: body_type.clone(),
-                                body: body_elab,
-                            },
-                            Scheme {
-                                variables: type_params,
-                                type_: Type::Func(
+                        let (type_, value) = if params_elab.is_empty() {
+                            match body_type {
+                                core::Type::Func(_, _) => {
+                                    Ok((body_type, body_elab))
+                                }
+                                _ if type_params.is_empty() => {
+                                    Ok((body_type, body_elab))
+                                }
+                                body_type => {
+                                    Err(TypeError::AmbiguousType(type_params.clone(), body_type))
+                                }
+                            }
+                        } else {
+                            Ok((
+                                Type::Func(
                                     params_elab
                                         .iter()
-                                        .map(|binding| binding.type_.clone())
+                                        .map(|param| param.type_.clone())
                                         .collect(),
-                                    box body_type,
+                                    box body_type.clone(),
                                 ),
-                            },
-                        ))
+                                core::Expr::Abs {
+                                    params: params_elab,
+                                    return_type: body_type,
+                                    body: box body_elab,
+                                },
+                            ))
+                        }?;
+
+                        Ok(core::ValueDecl {
+                            name,
+                            type_params,
+                            type_,
+                            value,
+                        })
                     }?;
 
-                    if functions.contains_key(&name) {
+                    if values.contains_key(&name) {
                         Err(TypeError::AlreadyDefined(name))?
                     } else {
-                        functions.insert(name, decl_elab);
-                        self.env.insert(name, scheme);
+                        values.insert(name, decl_elab.clone());
+                        self.env.insert(
+                            name,
+                            Scheme {
+                                variables: decl_elab.type_params,
+                                type_: decl_elab.type_,
+                            },
+                        );
                     }
                 }
             }
             self.reset();
         }
-        Ok(core::Module { functions })
+        Ok(core::Module { values })
     }
 }
