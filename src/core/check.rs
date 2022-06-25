@@ -201,17 +201,17 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    fn occurs_check(&mut self, tvar_key: TVarKey, type_: Type<'src>) -> bool {
+    fn occurs_check(&mut self, tvar_key: TVarKey, type_: &Type<'src>) -> bool {
         match type_ {
             Type::Int => true,
             Type::Bool => true,
             Type::Name { .. } => true,
             Type::QVar(_) => true,
-            Type::TVar(tvar_key2) if tvar_key == tvar_key2 => false,
+            Type::TVar(tvar_key2) if tvar_key == *tvar_key2 => false,
             Type::TVar(tvar_key2) => {
                 let [tvar_ref, tvar_ref2] = unsafe {
                     self.bindings
-                        .get_disjoint_unchecked_mut([tvar_key, tvar_key2])
+                        .get_disjoint_unchecked_mut([tvar_key, *tvar_key2])
                 };
                 match (*tvar_ref2).clone() {
                     TVar::Unbound {
@@ -228,13 +228,13 @@ impl<'src> Typechecker<'src> {
                         };
                         true
                     }
-                    TVar::Bound(type_) => self.occurs_check(tvar_key, type_.clone()),
+                    TVar::Bound(type_) => self.occurs_check(tvar_key, &type_),
                 }
             }
             Type::Func(param_types, box return_type) => {
                 param_types
                     .iter()
-                    .all(|param_type| self.occurs_check(tvar_key, param_type.clone()))
+                    .all(|param_type| self.occurs_check(tvar_key, param_type))
                     && self.occurs_check(tvar_key, return_type)
             }
         }
@@ -263,7 +263,7 @@ impl<'src> Typechecker<'src> {
             (Type::TVar(tvar_key), type_) | (type_, Type::TVar(tvar_key)) => {
                 match &self.bindings[tvar_key] {
                     TVar::Unbound { .. } => {
-                        if self.occurs_check(tvar_key, type_.clone()) {
+                        if self.occurs_check(tvar_key, &type_) {
                             self.bindings[tvar_key] = TVar::Bound(type_);
                             Ok(())
                         } else {
