@@ -43,10 +43,6 @@ pub fn parse_from_file<'src>(
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     let source = source_storage.alloc(contents);
-    let mut lexer = Lexer::new(source.as_mut_str());
-    let mut errors = Vec::new();
-    ModuleParser::new()
-        .parse(&mut errors, &mut lexer)
-        .map_err(Error::ParseError)
+    parse_from_str(source)
 }
 

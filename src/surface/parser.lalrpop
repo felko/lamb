@@ -55,7 +55,7 @@ pub Module: Module<'src> = {
     <decls: (Decl)*> => Module { declarations: decls },
 }
 
-pub Type: Type<'src> = Type0;
+Type: Type<'src> = Type0;
 
 FuncTypeParam: Type<'src> = <Type1> "->";
 
@@ -87,7 +87,7 @@ Binding: Binding<'src> = {
     },
 }
 
-pub Expr = Expr0;
+Expr = Expr0;
 
 Expr0: Expr<'src> = {
     "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
