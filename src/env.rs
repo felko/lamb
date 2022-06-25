@@ -11,23 +11,11 @@ impl<K, V> Env<K, V>
 where
     K: Hash + Eq,
 {
-    pub fn new() -> Env<K, V> {
-        Env::with_toplevel(HashMap::new())
-    }
-
-    pub fn with_toplevel(top_level: HashMap<K, V>) -> Env<K, V> {
+    pub fn new(top_level: HashMap<K, V>) -> Env<K, V> {
         Env {
             top_level,
             scopes: Vec::new(),
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.top_level.is_empty() && self.scopes.iter().all(|scope| scope.is_empty())
-    }
-
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.scopes.iter().any(|scope| scope.contains_key(key)) || self.top_level.contains_key(key)
     }
 
     fn current_scope(&mut self) -> &mut HashMap<K, V> {

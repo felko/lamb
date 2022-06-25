@@ -33,7 +33,7 @@ impl<'src> Typechecker<'src> {
     pub fn new() -> Typechecker<'src> {
         Typechecker {
             definitions: HashMap::new(),
-            env: Env::with_toplevel(PRIMITIVES.clone()),
+            env: Env::new(PRIMITIVES.clone()),
             level: 0,
             bindings: SlotMap::with_key(),
             tvar_supply: 0,
