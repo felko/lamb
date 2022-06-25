@@ -3,12 +3,15 @@
 #[macro_use]
 extern crate lalrpop_util;
 
+#[macro_use]
+extern crate lazy_static;
+
 use bumpalo::Bump;
 use clap::Parser;
 
-pub mod core;
+mod core;
 mod env;
-pub mod surface;
+mod surface;
 
 use surface::parse_from_file;
 

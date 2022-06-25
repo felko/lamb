@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::core;
+use crate::core::prim::PRIMITIVES;
 use crate::core::syntax::{Scheme, TVar, TVarKey, Type};
 use crate::env::Env;
 use crate::surface;
@@ -32,7 +33,7 @@ impl<'src> Typechecker<'src> {
     pub fn new() -> Typechecker<'src> {
         Typechecker {
             definitions: HashMap::new(),
-            env: Env::new(),
+            env: Env::with_toplevel(PRIMITIVES.clone()),
             level: 0,
             bindings: SlotMap::with_key(),
             tvar_supply: 0,

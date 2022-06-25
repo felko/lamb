@@ -12,8 +12,12 @@ where
     K: Hash + Eq,
 {
     pub fn new() -> Env<K, V> {
+        Env::with_toplevel(HashMap::new())
+    }
+
+    pub fn with_toplevel(top_level: HashMap<K, V>) -> Env<K, V> {
         Env {
-            top_level: HashMap::new(),
+            top_level,
             scopes: Vec::new(),
         }
     }
