@@ -1,0 +1,8 @@
+# ok: value, monomorphic
+def x = 1
+
+# ok: function, polymorphic
+def id x = x
+
+# ambiguous type A in A (error : ∀ A. A)
+# def ambiguous = error

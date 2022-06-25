@@ -1,3 +1,4 @@
-let f (x : Int): Int = x + 1 in
-let g y = y + 2 in
-f (g 6)
+def test =
+    let f (x : Int): Int = x + 1 in
+    let g y = y + 2 in
+    f (g 6)

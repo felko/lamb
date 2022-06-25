@@ -7,8 +7,11 @@ def annotate_let_body x =
     in x : Bool
 
 # unification failure: Int !~ Bool
-# def annotate_let_body_wrong x =
+# def annotate_let_body_bad x =
 #     let y = x + 1
 #     in x : Bool
 
 def annotate_generic <A> x = x : A
+
+# unification failure: A !~ Int
+# def annotate_generic_bad <A> (x : A) = x + 1
