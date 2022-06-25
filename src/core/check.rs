@@ -240,95 +240,114 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    fn find(&mut self, type_: Type<'src>) -> Type<'src> {
+    fn find_aux(&mut self, type_: Type<'src>) -> Type<'src> {
         match type_ {
             Type::TVar(tvar_key) => match &self.bindings[tvar_key] {
                 TVar::Bound(parent) => {
-                    let repr = self.find(parent.clone());
+                    let repr = self.find_aux(parent.clone());
                     self.bindings[tvar_key] = TVar::Bound(repr.clone());
                     repr
                 }
-                _ => Type::TVar(tvar_key),
+                _ => type_,
             },
             type_ => type_,
         }
     }
+    
+    fn find(&mut self, type_: &mut Type<'src>) {
+        let repr = self.find_aux(type_.clone());
+        *type_ = repr;
+    }
 
-    fn unify(&mut self, lhs: Type<'src>, rhs: Type<'src>) -> Result<(), TypeError<'src>> {
-        match (self.find(lhs), self.find(rhs)) {
+    fn unify(&mut self, lhs: &mut Type<'src>, rhs: &mut Type<'src>) -> Result<(), TypeError<'src>> {
+        self.find(lhs);
+        self.find(rhs);
+        match (lhs, rhs) {
             (t, u) if t == u => Ok(()),
             (Type::Int, Type::Int) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::QVar(a), Type::QVar(b)) if a == b => Ok(()),
-            (Type::TVar(tvar_key), type_) | (type_, Type::TVar(tvar_key)) => {
-                match &self.bindings[tvar_key] {
+            (Type::TVar(tvar_key), mut type_) | (mut type_, Type::TVar(tvar_key)) => {
+                let tvar = self.bindings[*tvar_key].clone();
+                match tvar {
                     TVar::Unbound { .. } => {
-                        if self.occurs_check(tvar_key, &type_) {
-                            self.bindings[tvar_key] = TVar::Bound(type_);
+                        if self.occurs_check(*tvar_key, type_) {
+                            self.bindings[*tvar_key] = TVar::Bound(type_.clone());
                             Ok(())
                         } else {
-                            Err(TypeError::OccursCheckFailure(tvar_key, type_))
+                            Err(TypeError::OccursCheckFailure(*tvar_key, type_.clone()))
                         }
                     }
-                    TVar::Bound(bound_type) => self.unify(bound_type.clone(), type_),
+                    TVar::Bound(mut bound_type) => self.unify(&mut bound_type, &mut type_),
                 }
             }
             (Type::Func(params1, box ret1), Type::Func(params2, box ret2)) => {
                 let mut arg_index = 0;
                 let (arity1, arity2) = (params1.len(), params2.len());
                 while arg_index < arity1 && arg_index < arity2 {
-                    self.unify(params1[arg_index].clone(), params2[arg_index].clone())?;
+                    self.unify(&mut params1[arg_index], &mut params2[arg_index])?;
                     arg_index += 1;
                 }
                 match arity1.cmp(&arity2) {
                     Ordering::Equal => self.unify(ret1, ret2),
                     Ordering::Less => self.unify(
                         ret1,
-                        Type::Func(params2.iter().cloned().skip(arg_index).collect(), box ret2),
+                        &mut Type::Func(params2.iter().cloned().skip(arg_index).collect(), box ret2.clone()),
                     ),
                     Ordering::Greater => self.unify(
-                        Type::Func(params1.iter().cloned().skip(arg_index).collect(), box ret1),
+                        &mut Type::Func(params1.iter().cloned().skip(arg_index).collect(), box ret1.clone()),
                         ret2,
                     ),
                 }
             }
-            (lhs, rhs) => Err(TypeError::UnificationFailure(lhs, rhs)),
+            (lhs, rhs) => Err(TypeError::UnificationFailure(lhs.clone(), rhs.clone())),
         }
     }
 
     fn surface_type_to_core_type(
         &mut self,
+        type_params: &Vec<&'src str>,
         subst: &mut Instantiation<'src>,
         type_: surface::Type<'src>,
-    ) -> Type<'src> {
+    ) -> Result<Type<'src>, TypeError<'src>> {
         match type_ {
             surface::Type::Name(name) => match subst.get_mut(&name) {
-                Some(Some(tvar_key)) => Type::TVar(*tvar_key),
+                Some(Some(tvar_key)) => Ok(Type::TVar(*tvar_key)),
                 Some(tvar_ref) => {
                     let tvar_key2 = self.fresh_tvar();
                     *tvar_ref = Some(tvar_key2);
-                    Type::TVar(tvar_key2)
+                    Ok(Type::TVar(tvar_key2))
                 }
-                None => Type::Name { name },
+                None => {
+                    if type_params.contains(&name) {
+                        Ok(Type::QVar(name.to_owned()))
+                    } else {
+                        Ok(Type::Name { name })
+                    }
+                }
             },
-            surface::Type::Func(params, box ret) => Type::Func(
-                params
+            surface::Type::Func(params, box ret) => {
+                let core_param_types = params
                     .iter()
                     .cloned()
-                    .map(|param_type| self.surface_type_to_core_type(subst, param_type))
-                    .collect(),
-                box self.surface_type_to_core_type(subst, ret),
-            ),
-            surface::Type::Int => Type::Int,
-            surface::Type::Bool => Type::Bool,
+                    .map(|param_type| {
+                        self.surface_type_to_core_type(type_params, subst, param_type)
+                    })
+                    .collect::<Result<Vec<core::Type<'src>>, TypeError<'src>>>()?;
+                let core_return_type = self.surface_type_to_core_type(type_params, subst, ret)?;
+                Ok(Type::Func(core_param_types, box core_return_type))
+            }
+            surface::Type::Int => Ok(Type::Int),
+            surface::Type::Bool => Ok(Type::Bool),
         }
     }
 
     fn elab_param(
         &mut self,
+        type_params: &Vec<&'src str>,
         subst: &mut Instantiation<'src>,
         param: surface::Binding<'src>,
-    ) -> core::Binding<'src> {
+    ) -> Result<core::Binding<'src>, TypeError<'src>> {
         match param {
             surface::Binding::Inferred(name) => {
                 let param_type = self.fresh_tvar();
@@ -339,13 +358,13 @@ impl<'src> Typechecker<'src> {
                         type_: Type::TVar(param_type),
                     },
                 );
-                core::Binding {
+                Ok(core::Binding {
                     name,
                     type_: Type::TVar(param_type),
-                }
+                })
             }
             surface::Binding::Typed(name, type_) => {
-                let param_type = self.surface_type_to_core_type(subst, type_);
+                let param_type = self.surface_type_to_core_type(type_params, subst, type_)?;
                 self.env.insert(
                     name,
                     Scheme {
@@ -353,22 +372,23 @@ impl<'src> Typechecker<'src> {
                         type_: param_type.clone(),
                     },
                 );
-                core::Binding {
+                Ok(core::Binding {
                     name,
                     type_: param_type,
-                }
+                })
             }
         }
     }
 
     fn elab_params(
         &mut self,
+        type_params: &Vec<&'src str>,
         subst: &mut Instantiation<'src>,
         params: Vec<surface::Binding<'src>>,
-    ) -> Vec<core::Binding<'src>> {
+    ) -> Result<Vec<core::Binding<'src>>, TypeError<'src>> {
         params
             .iter()
-            .map(|param| self.elab_param(subst, param.clone()))
+            .map(|param| self.elab_param(type_params, subst, param.clone()))
             .collect()
     }
 
@@ -400,12 +420,12 @@ impl<'src> Typechecker<'src> {
                 }
             }
             surface::Expr::Add(box lhs, box rhs) => {
-                let lhs_elab = self.check(lhs, Type::Int)?;
-                let rhs_elab = self.check(rhs, Type::Int)?;
+                let lhs_elab = self.check(lhs, &mut Type::Int)?;
+                let rhs_elab = self.check(rhs, &mut Type::Int)?;
                 Ok((core::Expr::Add(box lhs_elab, box rhs_elab), Type::Int))
             }
             surface::Expr::App(box callee, args) => {
-                let (callee_elab, callee_type) = self.infer(callee)?;
+                let (callee_elab, mut callee_type) = self.infer(callee)?;
                 let mut param_vars: Vec<TVarKey> = Vec::new();
                 for _ in 0..args.len() {
                     param_vars.push(self.fresh_tvar());
@@ -413,12 +433,12 @@ impl<'src> Typechecker<'src> {
                 let param_types = param_vars.iter().map(|var| Type::TVar(*var)).collect();
                 let return_var = self.fresh_tvar();
                 self.unify(
-                    callee_type,
-                    Type::Func(param_types, box Type::TVar(return_var)),
+                    &mut callee_type,
+                    &mut Type::Func(param_types, box Type::TVar(return_var)),
                 )?;
                 let mut args_elab = Vec::new();
                 for (arg, param_type) in args.into_iter().zip(param_vars) {
-                    let arg_elab = self.check(arg, Type::TVar(param_type))?;
+                    let arg_elab = self.check(arg, &mut Type::TVar(param_type))?;
                     args_elab.push(arg_elab);
                 }
                 Ok((
@@ -431,7 +451,7 @@ impl<'src> Typechecker<'src> {
             }
             surface::Expr::Abs(params, box body) => {
                 let mut subst = HashMap::new();
-                let params_elab = self.elab_params(&mut subst, params);
+                let params_elab = self.elab_params(&Vec::new(), &mut subst, params.clone())?;
                 self.new_scope_with_params(params_elab.clone());
                 let (body_elab, body_type) = self.infer(body)?;
                 self.env.pop_scope();
@@ -467,13 +487,14 @@ impl<'src> Typechecker<'src> {
                             .iter()
                             .map(|type_param| (type_param.clone(), None)),
                     );
-                    let mut params_elab = self.elab_params(&mut subst, params);
+                    let mut params_elab = self.elab_params(&type_params, &mut subst, params.clone())?;
                     self.new_scope_with_params(params_elab.clone());
                     let mut body_elab;
                     let mut body_type;
                     if let Some(return_type) = return_type {
-                        body_type = self.surface_type_to_core_type(&mut subst, return_type);
-                        body_elab = self.check(body, body_type.clone())?;
+                        body_type =
+                            self.surface_type_to_core_type(&type_params, &mut subst, return_type.clone())?;
+                        body_elab = self.check(body, &mut body_type)?;
                     } else {
                         (body_elab, body_type) = self.infer(body)?;
                     }
@@ -545,45 +566,48 @@ impl<'src> Typechecker<'src> {
                 ))
             }
             surface::Expr::Ann(box expr, type_) => {
-                let expr_type = self.surface_type_to_core_type(&mut HashMap::new(), type_);
-                let expr_elab = self.check(expr, expr_type.clone())?;
+                let mut expr_type =
+                    self.surface_type_to_core_type(&Vec::new(), &mut HashMap::new(), type_.clone())?;
+                let expr_elab = self.check(expr, &mut expr_type)?;
                 Ok((expr_elab, expr_type))
             }
         }
     }
-
+    
     fn check(
         &mut self,
         expr: surface::Expr<'src>,
-        type_: Type<'src>,
+        type_: &mut Type<'src>,
     ) -> Result<core::Expr<'src>, TypeError<'src>> {
-        match (expr, self.find(type_)) {
+        self.find(type_);
+        // let mut expr_type = (expr, type_);
+        match (expr, type_) {
             (surface::Expr::Lit(value), Type::Int) => Ok(core::Expr::Lit(value)),
             (surface::Expr::Var(name), expected_type) => {
                 if let Some(scheme) = self.env.lookup(name) {
-                    let (var_type, type_args) = self.instantiate(scheme.clone());
-                    self.unify(var_type, expected_type)?;
+                    let (mut var_type, type_args) = self.instantiate(scheme.clone());
+                    self.unify(&mut var_type, expected_type)?;
                     Ok(core::Expr::Var { name, type_args })
                 } else {
                     Err(TypeError::ScopeError(name))
                 }
             }
             (surface::Expr::Add(box lhs, box rhs), Type::Int) => {
-                let lhs_elab = self.check(lhs, Type::Int)?;
-                let rhs_elab = self.check(rhs, Type::Int)?;
+                let lhs_elab = self.check(lhs, &mut Type::Int)?;
+                let rhs_elab = self.check(rhs, &mut Type::Int)?;
                 Ok(core::Expr::Add(box lhs_elab, box rhs_elab))
             }
             (surface::Expr::App(box callee, args), expected_type) => {
-                let (callee_elab, callee_type) = self.infer(callee)?;
+                let (callee_elab, mut callee_type) = self.infer(callee)?;
                 let param_types: Vec<Type<'src>> =
                     args.iter().map(|_| Type::TVar(self.fresh_tvar())).collect();
                 self.unify(
-                    callee_type,
-                    Type::Func(param_types.iter().cloned().collect(), box expected_type),
+                    &mut callee_type,
+                    &mut Type::Func(param_types.iter().cloned().collect(), box expected_type.clone()),
                 )?;
                 let mut args_elab = Vec::new();
-                for (arg, param_type) in args.iter().cloned().zip(param_types.iter().cloned()) {
-                    let arg_elab = self.check(arg, param_type)?;
+                for (arg, mut param_type) in args.iter().cloned().zip(param_types.iter().cloned()) {
+                    let arg_elab = self.check(arg, &mut param_type)?;
                     args_elab.push(arg_elab);
                 }
                 Ok(core::Expr::App {
@@ -591,55 +615,57 @@ impl<'src> Typechecker<'src> {
                     args: args_elab,
                 })
             }
-            (surface::Expr::Abs(mut params, body), Type::Func(mut param_types, return_type)) => {
+            (surface::Expr::Abs(mut params, box body), Type::Func(param_types, box return_type)) => {
                 let param_count = params.len();
                 let param_type_count = param_types.len();
                 if param_count < param_type_count {
                     let remaining_param_types = param_types.split_off(param_count);
                     let mut params_typed = Vec::new();
-                    for (param, param_type) in params.iter().zip(param_types) {
+                    for (param, mut param_type) in params.iter().zip(param_types) {
                         let binding = match param {
                             surface::Binding::Inferred(name) => Ok(core::Binding {
                                 name,
-                                type_: param_type,
+                                type_: param_type.clone(),
                             }),
                             surface::Binding::Typed(name, expected_param_type) => {
-                                let expected_param_type = self.surface_type_to_core_type(
+                                let mut expected_param_type = self.surface_type_to_core_type(
+                                    &Vec::new(),
                                     &mut HashMap::new(),
                                     expected_param_type.clone(),
-                                );
-                                self.unify(param_type.clone(), expected_param_type)?;
+                                )?;
+                                self.unify(&mut param_type, &mut expected_param_type)?;
                                 Ok(core::Binding {
                                     name,
-                                    type_: param_type,
+                                    type_: param_type.clone(),
                                 })
                             }
                         }?;
                         params_typed.push(binding);
                     }
                     self.new_scope_with_params(params_typed);
-                    let expected_body_type = Type::Func(remaining_param_types, return_type);
-                    let body_elab = self.check(*body, expected_body_type)?;
+                    let mut expected_body_type = Type::Func(remaining_param_types, box return_type.clone());
+                    let body_elab = self.check(body, &mut expected_body_type)?;
                     self.env.pop_scope();
                     Ok(body_elab)
                 } else {
                     let remaining_params = params.split_off(param_type_count);
                     let mut params_typed = Vec::new();
-                    for (param, param_type) in params.iter().zip(param_types) {
+                    for (param, mut param_type) in params.iter().zip(param_types) {
                         let binding = match param {
                             surface::Binding::Inferred(name) => Ok(core::Binding {
                                 name,
-                                type_: param_type,
+                                type_: param_type.clone(),
                             }),
                             surface::Binding::Typed(name, expected_param_type) => {
-                                let expected_param_type = self.surface_type_to_core_type(
+                                let mut expected_param_type = self.surface_type_to_core_type(
+                                    &Vec::new(),
                                     &mut HashMap::new(),
                                     expected_param_type.clone(),
-                                );
-                                self.unify(param_type.clone(), expected_param_type)?;
+                                )?;
+                                self.unify(&mut param_type, &mut expected_param_type)?;
                                 Ok(core::Binding {
                                     name,
-                                    type_: param_type,
+                                    type_: param_type.clone(),
                                 })
                             }
                         }?;
@@ -647,7 +673,7 @@ impl<'src> Typechecker<'src> {
                     }
                     self.new_scope_with_params(params_typed);
                     let body_elab =
-                        self.check(surface::Expr::Abs(remaining_params, body), *return_type)?;
+                        self.check(surface::Expr::Abs(remaining_params, box body), return_type)?;
                     self.env.pop_scope();
                     Ok(body_elab)
                 }
@@ -671,13 +697,14 @@ impl<'src> Typechecker<'src> {
                             .iter()
                             .map(|type_param| (type_param.clone(), None)),
                     );
-                    let mut params_elab = self.elab_params(&mut subst, params);
+                    let mut params_elab = self.elab_params(&type_params, &mut subst, params)?;
                     self.new_scope_with_params(params_elab.clone());
                     let mut body_elab;
                     let mut body_type;
                     if let Some(return_type) = return_type {
-                        body_type = self.surface_type_to_core_type(&mut subst, return_type);
-                        body_elab = self.check(body, body_type.clone())?;
+                        body_type =
+                            self.surface_type_to_core_type(&type_params, &mut subst, return_type)?;
+                        body_elab = self.check(body, &mut body_type)?;
                     } else {
                         (body_elab, body_type) = self.infer(body)?;
                     }
@@ -748,42 +775,19 @@ impl<'src> Typechecker<'src> {
                     cont: box cont_elab,
                 })
             }
-            (surface::Expr::Ann(box expr, ann_type), expected_type) => {
-                let ann_type = self.surface_type_to_core_type(&mut HashMap::new(), ann_type);
-                self.unify(ann_type, expected_type.clone())?;
+            (surface::Expr::Ann(box expr, ann_type), mut expected_type) => {
+                let mut ann_type =
+                    self.surface_type_to_core_type(&Vec::new(), &mut HashMap::new(), ann_type)?;
+                self.unify(&mut ann_type, &mut expected_type)?;
                 let expr_elab = self.check(expr, expected_type)?;
                 Ok(expr_elab)
             }
-            (expr, expected_type) => {
-                let (expr_elab, expr_type) = self.infer(expr)?;
-                self.unify(expr_type, expected_type)?;
+            (expr, mut expected_type) => {
+                let (expr_elab, mut expr_type) = self.infer(expr)?;
+                self.unify(&mut expr_type, &mut expected_type)?;
                 Ok(expr_elab)
             }
         }
-    }
-
-    pub fn infer_expr(
-        &mut self,
-        expr: surface::Expr<'src>,
-    ) -> Result<(core::Expr<'src>, Scheme<'src>), TypeError<'src>> {
-        self.level += 1;
-        let (mut expr_elab, mut expr_type) = self.infer(expr)?;
-        self.level -= 1;
-        let mut skolems = SecondaryMap::new();
-        expr_elab = self.generalize_expr(&mut skolems, expr_elab);
-        expr_type = self.generalize(&mut skolems, expr_type);
-
-        let mut type_params = Vec::new();
-        for (tvar_key, type_param) in skolems {
-            self.bindings.remove(tvar_key);
-            type_params.push(type_param);
-        }
-
-        let scheme = Scheme {
-            variables: type_params,
-            type_: expr_type,
-        };
-        Ok((expr_elab, scheme))
     }
 
     pub fn run(
@@ -802,17 +806,17 @@ impl<'src> Typechecker<'src> {
                 } => {
                     let decl_elab = {
                         self.level += 1;
-                        let mut subst = HashMap::from_iter(
-                            type_params
-                                .iter()
-                                .map(|type_param| (type_param.clone(), None)),
-                        );
-                        let mut params_elab = self.elab_params(&mut subst, params);
+                        let mut subst = HashMap::new();
+                        let mut params_elab = self.elab_params(&type_params, &mut subst, params)?;
                         self.new_scope_with_params(params_elab.clone());
                         let (mut body_elab, mut body_type) = if let Some(return_type) = return_type
                         {
-                            let body_type = self.surface_type_to_core_type(&mut subst, return_type);
-                            let body_elab = self.check(body, body_type.clone())?;
+                            let mut body_type = self.surface_type_to_core_type(
+                                &type_params,
+                                &mut subst,
+                                return_type,
+                            )?;
+                            let body_elab = self.check(body, &mut body_type)?;
                             Ok((body_elab, body_type))
                         } else {
                             self.infer(body)
@@ -839,12 +843,8 @@ impl<'src> Typechecker<'src> {
 
                         let (type_, value) = if params_elab.is_empty() {
                             match body_type {
-                                core::Type::Func(_, _) => {
-                                    Ok((body_type, body_elab))
-                                }
-                                _ if type_params.is_empty() => {
-                                    Ok((body_type, body_elab))
-                                }
+                                core::Type::Func(_, _) => Ok((body_type, body_elab)),
+                                _ if type_params.is_empty() => Ok((body_type, body_elab)),
                                 body_type => {
                                     Err(TypeError::AmbiguousType(type_params.clone(), body_type))
                                 }
