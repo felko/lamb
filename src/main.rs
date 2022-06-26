@@ -33,9 +33,11 @@ fn main() {
             println!("Parser: {module:?}");
             let mut tc = tc::Typechecker::new();
             match tc.run(module) {
-                Ok(module_elab) => {
+                Ok(mut module_elab) => {
                     println!("Elab:\n{module_elab:?}");
                     println!("Elab:\n{module_elab}");
+                    core::uncurry::uncurry_module(&mut module_elab);
+                    println!("Uncurried:\n{module_elab:?}");
                 }
                 Err(error) => {
                     println!("{error:?}")

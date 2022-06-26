@@ -1,0 +1,1 @@
+def uncurry_test x y z = fun a b c => fun d e => x + y + z + a + b + c + d + e
