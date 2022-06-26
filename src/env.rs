@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use core::hash::Hash;
 use core::fmt::Display;
+use core::hash::Hash;
+use std::collections::HashMap;
 
 pub struct Env<K, V> {
     top_level: HashMap<K, V>,
@@ -68,7 +68,10 @@ impl<K: Display, V: Display> Display for Env<K, V> {
                 write!(f, "∅")
             } else {
                 write!(f, "{} : {}", assocs[0].0, assocs[0].1)?;
-                assocs.iter().skip(1).try_for_each(|(name, type_)| write!(f, ", {name} : {type_}"))
+                assocs
+                    .iter()
+                    .skip(1)
+                    .try_for_each(|(name, type_)| write!(f, ", {name} : {type_}"))
             }
         }
         let mut first_non_empty_scope_index = 0;

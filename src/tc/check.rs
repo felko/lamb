@@ -1,6 +1,7 @@
 use slotmap::{SecondaryMap, SlotMap};
 use std::cmp::Ordering;
 use std::collections::{hash_map, HashMap};
+use std::fmt::Display;
 
 use crate::core::syntax as core;
 use crate::env::Env;
@@ -14,10 +15,34 @@ type Level = u8;
 #[derive(Debug)]
 pub enum TypeError<'src> {
     ScopeError(&'src str),
-    OccursCheckFailure(TVarKey, Type<'src>),
+    OccursCheckFailure(u32, Type<'src>),
     UnificationFailure(Type<'src>, Type<'src>),
     AlreadyDefined(&'src str),
     AmbiguousType(Vec<String>, Type<'src>),
+}
+
+impl<'src> Display for TypeError<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeError::ScopeError(name) => {
+                writeln!(f, "Scope error: variable `{name}` not in scope")
+            }
+            TypeError::OccursCheckFailure(var, type_) => {
+                writeln!(f, "Occurs check failed: ${var} !~ {type_}")
+            }
+            TypeError::UnificationFailure(lhs, rhs) => {
+                writeln!(f, "Unification failed: {lhs} !~ {rhs}")
+            }
+            TypeError::AlreadyDefined(name) => writeln!(f, "Name `{name}` is already defined"),
+            TypeError::AmbiguousType(vars, type_) => {
+                write!(f, "Ambiguous type: could not deduce variables {}", vars[0])?;
+                vars.iter()
+                    .skip(1)
+                    .try_for_each(|var| write!(f, ", {var}"))?;
+                writeln!(f, " in type {type_}")
+            }
+        }
+    }
 }
 
 type Instantiation<'src> = HashMap<&'src str, Option<TVarKey>>;
@@ -300,12 +325,12 @@ impl<'src> Typechecker<'src> {
             (Type::TVar(tvar_key), type_) | (type_, Type::TVar(tvar_key)) => {
                 let tvar = self.bindings[*tvar_key].clone();
                 match tvar {
-                    TVar::Unbound { .. } => {
+                    TVar::Unbound { index, .. } => {
                         if self.occurs_check(*tvar_key, type_) {
                             self.bindings[*tvar_key] = TVar::Bound(type_.clone());
                             Ok(())
                         } else {
-                            Err(TypeError::OccursCheckFailure(*tvar_key, type_.clone()))
+                            Err(TypeError::OccursCheckFailure(index, type_.clone()))
                         }
                     }
                     TVar::Bound(mut bound_type) => self.unify(&mut bound_type, type_),

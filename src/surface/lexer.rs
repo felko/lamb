@@ -1,5 +1,6 @@
 use logos::Lexer as LogosLexer;
 use logos::Logos;
+use std::fmt::Display;
 use std::num::ParseIntError;
 
 use crate::surface::Span;
@@ -93,6 +94,43 @@ pub enum Error {
 pub struct Lexer<'src> {
     logos: LogosLexer<'src, TokenType>,
     pub errors: Vec<Error>,
+}
+
+impl<'src> Display for Token<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::LParen => write!(f, "("),
+            Token::RParen => write!(f, ")"),
+            Token::LAngle => write!(f, "<"),
+            Token::RAngle => write!(f, ">"),
+            Token::Comma => write!(f, ","),
+            Token::Colon => write!(f, ":"),
+            Token::Equal => write!(f, "="),
+            Token::Arrow => write!(f, "->"),
+            Token::DoubleArrow => write!(f, "=>"),
+            Token::Plus => write!(f, "+"),
+            Token::Def => write!(f, "def"),
+            Token::Fun => write!(f, "fun"),
+            Token::Let => write!(f, "let"),
+            Token::In => write!(f, "in"),
+            Token::Int => write!(f, "Int"),
+            Token::Bool => write!(f, "Bool"),
+            Token::Identifier(ident) => write!(f, "{ident}"),
+            Token::Number(num) => write!(f, "{num}"),
+        }
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::InvalidToken(span) => write!(f, "Invalid token at {span:?}"),
+            Error::InvalidInt(span, err) => write!(
+                f,
+                "Couldn't parse integer literal at position {span:?}: {err}"
+            ),
+        }
+    }
 }
 
 impl<'src> Iterator for Lexer<'src> {

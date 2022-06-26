@@ -1,4 +1,4 @@
-#![feature(never_type, box_syntax, box_patterns, let_chains)]
+#![feature(never_type, box_syntax, box_patterns, let_chains, trait_alias)]
 
 #[macro_use]
 extern crate lalrpop_util;
@@ -6,15 +6,22 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
+use std::{fs::File, io::Read};
+
 use bumpalo::Bump;
 use clap::Parser;
 
-mod tc;
+mod pipeline;
+
 mod core;
 mod env;
 mod surface;
+mod tc;
 
-use surface::parse_from_file;
+use crate::core::uncurry;
+use crate::pipeline::*;
+use crate::surface::parse;
+use crate::tc::typecheck;
 
 /// A compiler for a simple functional programming language
 #[derive(Parser, Debug)]
@@ -28,22 +35,22 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let source_storage = Bump::new();
-    match parse_from_file(&args.path, &source_storage) {
-        Ok(module) => {
-            println!("Parser: {module:?}");
-            let mut tc = tc::Typechecker::new();
-            match tc.run(module) {
-                Ok(mut module_elab) => {
-                    println!("Elab:\n{module_elab:?}");
-                    println!("Elab:\n{module_elab}");
-                    core::uncurry::uncurry_module(&mut module_elab);
-                    println!("Uncurried:\n{module_elab:?}");
-                }
-                Err(error) => {
-                    println!("{error:?}")
-                }
-            }
-        }
-        Err(error) => println!("{error:?}"),
-    }
+
+    let pipeline = PipelineBuilder::new()
+        .then_try(parse)
+        .then_try(typecheck)
+        .then_mut(uncurry)
+        .build();
+
+    let mut file =
+        File::open(&args.path).unwrap_or_else(|_| panic!("IO error: Failed to open file"));
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .unwrap_or_else(|_| panic!("IO error: failed to read file"));
+    let source = source_storage.alloc(contents);
+
+    match pipeline.run(source) {
+        Ok(result) => println!("Result: {result}"),
+        Err(err) => println!("Error: {err}"),
+    };
 }

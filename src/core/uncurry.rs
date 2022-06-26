@@ -43,10 +43,7 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
             uncurry_expr(rhs);
         }
         Let {
-            type_,
-            value,
-            cont,
-            ..
+            type_, value, cont, ..
         } => {
             uncurry_type(type_);
             uncurry_expr(value);
