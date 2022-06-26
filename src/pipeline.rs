@@ -100,15 +100,17 @@ struct IdPipeline<'a, Source> {
     _source: PhantomData<&'a Source>,
 }
 
-struct PassPipeline<'a, Source, Intermediate, Target> {
-    pipeline: Box<dyn Pipeline<'a, Source, Intermediate> + 'a>,
-    pass: Box<dyn Pass<'a, Intermediate, Target> + 'a>,
-}
-
 impl<'a, Source> Pipeline<'a, Source, Source> for IdPipeline<'a, Source> {
     fn run(&self, input: Source) -> Result<'a, Source> {
         Ok(input)
     }
+}
+
+struct PassPipeline<'a, Source, Intermediate, Target> {
+    pipeline: Box<dyn Pipeline<'a, Source, Intermediate> + 'a>,
+    name: &'static str,
+    log: bool,
+    pass: Box<dyn Pass<'a, Intermediate, Target> + 'a>,
 }
 
 impl<'a, Source: 'a, Intermediate: IR + 'a, Target: IR + 'a> Pipeline<'a, Source, Target>
@@ -116,7 +118,11 @@ impl<'a, Source: 'a, Intermediate: IR + 'a, Target: IR + 'a> Pipeline<'a, Source
 {
     fn run(&self, input: Source) -> Result<'a, Target> {
         let intermediate = self.pipeline.run(input)?;
-        self.pass.run(intermediate)
+        let target = self.pass.run(intermediate)?;
+        if self.log {
+            println!("{}:\n{}\n", self.name, target);
+        }
+        Ok(target)
     }
 }
 
@@ -137,11 +143,15 @@ impl<'a, Source: 'a> PipelineBuilder<'a, Source, Source> {
 impl<'a, Source: 'a, Intermediate: IR + 'a> PipelineBuilder<'a, Source, Intermediate> {
     pub fn add_pass<Target: IR + 'a>(
         self,
+        name: &'static str,
         pass: impl Pass<'a, Intermediate, Target> + 'a,
+        log: bool,
     ) -> PipelineBuilder<'a, Source, Target> {
         PipelineBuilder {
             pipeline: box PassPipeline {
                 pipeline: self.pipeline,
+                name,
+                log,
                 pass: box pass,
             },
         }
@@ -149,9 +159,11 @@ impl<'a, Source: 'a, Intermediate: IR + 'a> PipelineBuilder<'a, Source, Intermed
 
     pub fn then<Target: IR + 'a, F: Fn(Intermediate) -> Target + 'a>(
         self,
+        name: &'static str,
         pass: F,
+        log: bool,
     ) -> PipelineBuilder<'a, Source, Target> {
-        self.add_pass(SimplePass::new(pass))
+        self.add_pass(name, SimplePass::new(pass), log)
     }
 
     pub fn then_try<
@@ -160,16 +172,20 @@ impl<'a, Source: 'a, Intermediate: IR + 'a> PipelineBuilder<'a, Source, Intermed
         F: Fn(Intermediate) -> std::result::Result<Target, Error> + 'a,
     >(
         self,
+        name: &'static str,
         pass: F,
+        log: bool,
     ) -> PipelineBuilder<'a, Source, Target> {
-        self.add_pass(FailliblePass::new(pass))
+        self.add_pass(name, FailliblePass::new(pass), log)
     }
 
     pub fn then_mut<F: Fn(&mut Intermediate) + 'a>(
         self,
+        name: &'static str,
         pass: F,
+        log: bool,
     ) -> PipelineBuilder<'a, Source, Intermediate> {
-        self.add_pass(InplacePass::new(pass))
+        self.add_pass(name, InplacePass::new(pass), log)
     }
 }
 

@@ -37,9 +37,9 @@ fn main() {
     let source_storage = Bump::new();
 
     let pipeline = PipelineBuilder::new()
-        .then_try(parse)
-        .then_try(typecheck)
-        .then_mut(uncurry)
+        .then_try("parsing", parse, false)
+        .then_try("typechecking", typecheck, true)
+        .then_mut("uncurrying", uncurry, true)
         .build();
 
     let mut file =
@@ -50,7 +50,9 @@ fn main() {
     let source = source_storage.alloc(contents);
 
     match pipeline.run(source) {
-        Ok(result) => println!("Result: {result}"),
-        Err(err) => println!("Error: {err}"),
+        Ok(_) => {}
+        Err(err) => {
+            println!("Error: {err}");
+        }
     };
 }
