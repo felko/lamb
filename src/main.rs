@@ -9,7 +9,7 @@ extern crate lazy_static;
 use bumpalo::Bump;
 use clap::Parser;
 
-mod core;
+mod tc;
 mod env;
 mod surface;
 
@@ -30,7 +30,7 @@ fn main() {
     match parse_from_file(&args.path, &source_storage) {
         Ok(module) => {
             println!("Parser: {module:?}");
-            let mut tc = core::Typechecker::new();
+            let mut tc = tc::Typechecker::new();
             match tc.run(module) {
                 Ok(module_elab) => {
                     println!("Elab:\n{module_elab:?}");
