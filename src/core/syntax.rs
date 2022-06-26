@@ -55,7 +55,11 @@ pub enum Expr<'src> {
         name: &'src str,
         type_args: Vec<Type<'src>>,
     },
-    Abs { params: Vec<Binding<'src>>, return_type: Type<'src>, body: Box<Expr<'src>> },
+    Abs {
+        params: Vec<Binding<'src>>,
+        return_type: Type<'src>,
+        body: Box<Expr<'src>>,
+    },
     Add(Box<Expr<'src>>, Box<Expr<'src>>),
     Let {
         name: &'src str,
@@ -72,10 +76,9 @@ pub enum Expr<'src> {
 
 impl<'src> Display for Module<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (_, decl) in &self.values{
-            write!(f, "{decl}\n")?;
-        }
-        Ok(())
+        self.values
+            .values()
+            .try_for_each(|decl| writeln!(f, "{decl}"))
     }
 }
 
@@ -86,9 +89,10 @@ fn fmt_list<T: Display>(
 ) -> std::fmt::Result {
     if !elements.is_empty() {
         write!(f, "{}{}", delimiters.0, elements[0])?;
-        for i in 1..elements.len() {
-            write!(f, ", {}", elements[i])?;
-        }
+        elements
+            .iter()
+            .skip(1)
+            .try_for_each(|elem| write!(f, ", {}", elem))?;
         write!(f, "{}", delimiters.1)
     } else {
         Ok(())
@@ -150,7 +154,11 @@ impl<'src> Display for Expr<'src> {
                 write!(f, "{name}")?;
                 fmt_list(f, ("<", ">"), type_args.clone())
             }
-            Expr::Abs { params, return_type, body } => {
+            Expr::Abs {
+                params,
+                return_type,
+                body,
+            } => {
                 write!(f, "(fun ")?;
                 for binding in params {
                     write!(f, "{binding} ")?;

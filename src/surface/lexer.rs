@@ -4,7 +4,7 @@ use std::num::ParseIntError;
 
 use crate::surface::Span;
 
-#[derive(Logos, Debug, PartialEq)]
+#[derive(Logos, Debug, PartialEq, Eq)]
 pub enum TokenType {
     #[error]
     // skip whitespace
@@ -62,7 +62,7 @@ pub enum TokenType {
     Number,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token<'src> {
     LParen,
     RParen,
@@ -106,7 +106,7 @@ impl<'src> Iterator for Lexer<'src> {
             }
         };
         let span = self.logos.span();
-        return Some((span.start, token, span.end));
+        Some((span.start, token, span.end))
     }
 }
 

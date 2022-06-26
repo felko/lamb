@@ -68,10 +68,7 @@ impl<K: Display, V: Display> Display for Env<K, V> {
                 write!(f, "∅")
             } else {
                 write!(f, "{} : {}", assocs[0].0, assocs[0].1)?;
-                for i in 1..assocs.len() {
-                    write!(f, ", {} : {}", assocs[i].0, assocs[i].1)?;
-                }
-                Ok(())
+                assocs.iter().skip(1).try_for_each(|(name, type_)| write!(f, ", {name} : {type_}"))
             }
         }
         let mut first_non_empty_scope_index = 0;
@@ -86,7 +83,7 @@ impl<K: Display, V: Display> Display for Env<K, V> {
                 let scope = &self.scopes[i];
                 if !scope.is_empty() {
                     write!(f, "; ")?;
-                    fmt_scope(f, &scope)?;
+                    fmt_scope(f, scope)?;
                 }
             }
         }

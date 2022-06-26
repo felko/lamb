@@ -3,7 +3,7 @@ use std::io::Read;
 use std::ops::Range;
 
 pub mod lexer;
-lalrpop_mod!(pub parser, "/surface/parser.rs");
+lalrpop_mod!(#[allow(clippy::all)] pub parser, "/surface/parser.rs");
 pub mod syntax;
 
 pub type Span = Range<usize>;
@@ -26,7 +26,7 @@ impl<'src> From<std::io::Error> for Error<'src> {
     }
 }
 
-pub fn parse_from_str<'src>(source: &'src str) -> Result<Module<'src>, Error<'src>> {
+pub fn parse_from_str(source: &str) -> Result<Module, Error> {
     let mut lexer = Lexer::new(source);
     let mut errors = Vec::new();
     match ModuleParser::new().parse(&mut errors, &mut lexer) {

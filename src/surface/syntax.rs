@@ -50,19 +50,22 @@ pub struct Module<'src> {
 
 impl<'src> Display for Module<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for decl in &self.declarations {
-            write!(f, "{decl}\n")?;
-        }
-        Ok(())
+        self.declarations
+            .iter()
+            .try_for_each(|decl| writeln!(f, "{decl}"))
     }
 }
 
-fn show_type_params<'src>(f: &mut std::fmt::Formatter<'_>, type_params: Vec<&'src str>) -> std::fmt::Result {
+fn show_type_params<'src>(
+    f: &mut std::fmt::Formatter<'_>,
+    type_params: Vec<&'src str>,
+) -> std::fmt::Result {
     if !type_params.is_empty() {
         write!(f, "<{}", type_params[0])?;
-        for i in 1..type_params.len() {
-            write!(f, ", {}", type_params[i])?;
-        }
+        type_params
+            .iter()
+            .skip(1)
+            .try_for_each(|param| write!(f, ", {}", param))?;
         write!(f, ">")
     } else {
         Ok(())
@@ -72,12 +75,18 @@ fn show_type_params<'src>(f: &mut std::fmt::Formatter<'_>, type_params: Vec<&'sr
 impl<'src> Display for Decl<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Decl::Func {name, type_params, params, return_type, body} => {
+            Decl::Func {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+            } => {
                 write!(f, "def {name}")?;
                 show_type_params(f, type_params.clone())?;
-                for binding in params {
-                    write!(f, "{binding} ")?;
-                }
+                params
+                    .iter()
+                    .try_for_each(|binding| write!(f, "{binding} "))?;
                 if let Some(return_type) = return_type {
                     write!(f, ": {return_type} ")?;
                 }
@@ -136,8 +145,7 @@ impl<'src> Display for Expr<'src> {
                 body,
                 cont,
             } => {
-                write!(
-                    f, "(let {name}")?;
+                write!(f, "(let {name}")?;
                 show_type_params(f, type_params.clone())?;
                 for binding in params {
                     write!(f, "{binding} ")?;
@@ -153,10 +161,10 @@ impl<'src> Display for Expr<'src> {
                     write!(f, " {arg}")?;
                 }
                 write!(f, ")")
-            },
+            }
             Expr::Ann(expr, type_) => {
                 write!(f, "({expr} : {type_})")
-            },
+            }
         }
     }
 }

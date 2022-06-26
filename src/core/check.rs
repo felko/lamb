@@ -1,6 +1,6 @@
 use slotmap::{SecondaryMap, SlotMap};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 
 use crate::core;
 use crate::core::prim::PRIMITIVES;
@@ -75,7 +75,7 @@ impl<'src> Typechecker<'src> {
             Type::Func(parameter_types, box return_type) => {
                 let parameter_types = parameter_types
                     .iter()
-                    .map(|parameter_type| self.instantiate_type(&subst, parameter_type.clone()))
+                    .map(|parameter_type| self.instantiate_type(subst, parameter_type.clone()))
                     .collect();
                 let return_type = self.instantiate_type(subst, return_type);
                 Type::Func(parameter_types, box return_type)
@@ -253,7 +253,7 @@ impl<'src> Typechecker<'src> {
             type_ => type_,
         }
     }
-    
+
     fn find(&mut self, type_: &mut Type<'src>) {
         let repr = self.find_aux(type_.clone());
         *type_ = repr;
@@ -267,7 +267,7 @@ impl<'src> Typechecker<'src> {
             (Type::Int, Type::Int) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::QVar(a), Type::QVar(b)) if a == b => Ok(()),
-            (Type::TVar(tvar_key), mut type_) | (mut type_, Type::TVar(tvar_key)) => {
+            (Type::TVar(tvar_key), type_) | (type_, Type::TVar(tvar_key)) => {
                 let tvar = self.bindings[*tvar_key].clone();
                 match tvar {
                     TVar::Unbound { .. } => {
@@ -278,7 +278,7 @@ impl<'src> Typechecker<'src> {
                             Err(TypeError::OccursCheckFailure(*tvar_key, type_.clone()))
                         }
                     }
-                    TVar::Bound(mut bound_type) => self.unify(&mut bound_type, &mut type_),
+                    TVar::Bound(mut bound_type) => self.unify(&mut bound_type, type_),
                 }
             }
             (Type::Func(params1, box ret1), Type::Func(params2, box ret2)) => {
@@ -292,10 +292,16 @@ impl<'src> Typechecker<'src> {
                     Ordering::Equal => self.unify(ret1, ret2),
                     Ordering::Less => self.unify(
                         ret1,
-                        &mut Type::Func(params2.iter().cloned().skip(arg_index).collect(), box ret2.clone()),
+                        &mut Type::Func(
+                            params2.iter().skip(arg_index).cloned().collect(),
+                            box ret2.clone(),
+                        ),
                     ),
                     Ordering::Greater => self.unify(
-                        &mut Type::Func(params1.iter().cloned().skip(arg_index).collect(), box ret1.clone()),
+                        &mut Type::Func(
+                            params1.iter().skip(arg_index).cloned().collect(),
+                            box ret1.clone(),
+                        ),
                         ret2,
                     ),
                 }
@@ -485,15 +491,19 @@ impl<'src> Typechecker<'src> {
                     let mut subst = HashMap::from_iter(
                         type_params
                             .iter()
-                            .map(|type_param| (type_param.clone(), None)),
+                            .map(|type_param| (*type_param, None)),
                     );
-                    let mut params_elab = self.elab_params(&type_params, &mut subst, params.clone())?;
+                    let mut params_elab =
+                        self.elab_params(&type_params, &mut subst, params.clone())?;
                     self.new_scope_with_params(params_elab.clone());
                     let mut body_elab;
                     let mut body_type;
                     if let Some(return_type) = return_type {
-                        body_type =
-                            self.surface_type_to_core_type(&type_params, &mut subst, return_type.clone())?;
+                        body_type = self.surface_type_to_core_type(
+                            &type_params,
+                            &mut subst,
+                            return_type.clone(),
+                        )?;
                         body_elab = self.check(body, &mut body_type)?;
                     } else {
                         (body_elab, body_type) = self.infer(body)?;
@@ -521,7 +531,14 @@ impl<'src> Typechecker<'src> {
 
                     if params_elab.is_empty() {
                         match body_type {
-                            core::Type::Func(_, _) | _ if type_params.is_empty() => Ok((
+                            core::Type::Func(_, _) => Ok((
+                                body_elab,
+                                Scheme {
+                                    variables: type_params,
+                                    type_: body_type,
+                                },
+                            )),
+                            _ if type_params.is_empty() => Ok((
                                 body_elab,
                                 Scheme {
                                     variables: type_params,
@@ -566,14 +583,17 @@ impl<'src> Typechecker<'src> {
                 ))
             }
             surface::Expr::Ann(box expr, type_) => {
-                let mut expr_type =
-                    self.surface_type_to_core_type(&Vec::new(), &mut HashMap::new(), type_.clone())?;
+                let mut expr_type = self.surface_type_to_core_type(
+                    &Vec::new(),
+                    &mut HashMap::new(),
+                    type_.clone(),
+                )?;
                 let expr_elab = self.check(expr, &mut expr_type)?;
                 Ok((expr_elab, expr_type))
             }
         }
     }
-    
+
     fn check(
         &mut self,
         expr: surface::Expr<'src>,
@@ -603,7 +623,10 @@ impl<'src> Typechecker<'src> {
                     args.iter().map(|_| Type::TVar(self.fresh_tvar())).collect();
                 self.unify(
                     &mut callee_type,
-                    &mut Type::Func(param_types.iter().cloned().collect(), box expected_type.clone()),
+                    &mut Type::Func(
+                        param_types.to_vec(),
+                        box expected_type.clone(),
+                    ),
                 )?;
                 let mut args_elab = Vec::new();
                 for (arg, mut param_type) in args.iter().cloned().zip(param_types.iter().cloned()) {
@@ -615,13 +638,16 @@ impl<'src> Typechecker<'src> {
                     args: args_elab,
                 })
             }
-            (surface::Expr::Abs(mut params, box body), Type::Func(param_types, box return_type)) => {
+            (
+                surface::Expr::Abs(mut params, box body),
+                Type::Func(param_types, box return_type),
+            ) => {
                 let param_count = params.len();
                 let param_type_count = param_types.len();
                 if param_count < param_type_count {
                     let remaining_param_types = param_types.split_off(param_count);
                     let mut params_typed = Vec::new();
-                    for (param, mut param_type) in params.iter().zip(param_types) {
+                    for (param, param_type) in params.iter().zip(param_types) {
                         let binding = match param {
                             surface::Binding::Inferred(name) => Ok(core::Binding {
                                 name,
@@ -633,7 +659,7 @@ impl<'src> Typechecker<'src> {
                                     &mut HashMap::new(),
                                     expected_param_type.clone(),
                                 )?;
-                                self.unify(&mut param_type, &mut expected_param_type)?;
+                                self.unify(param_type, &mut expected_param_type)?;
                                 Ok(core::Binding {
                                     name,
                                     type_: param_type.clone(),
@@ -643,14 +669,15 @@ impl<'src> Typechecker<'src> {
                         params_typed.push(binding);
                     }
                     self.new_scope_with_params(params_typed);
-                    let mut expected_body_type = Type::Func(remaining_param_types, box return_type.clone());
+                    let mut expected_body_type =
+                        Type::Func(remaining_param_types, box return_type.clone());
                     let body_elab = self.check(body, &mut expected_body_type)?;
                     self.env.pop_scope();
                     Ok(body_elab)
                 } else {
                     let remaining_params = params.split_off(param_type_count);
                     let mut params_typed = Vec::new();
-                    for (param, mut param_type) in params.iter().zip(param_types) {
+                    for (param, param_type) in params.iter().zip(param_types) {
                         let binding = match param {
                             surface::Binding::Inferred(name) => Ok(core::Binding {
                                 name,
@@ -662,7 +689,7 @@ impl<'src> Typechecker<'src> {
                                     &mut HashMap::new(),
                                     expected_param_type.clone(),
                                 )?;
-                                self.unify(&mut param_type, &mut expected_param_type)?;
+                                self.unify(param_type, &mut expected_param_type)?;
                                 Ok(core::Binding {
                                     name,
                                     type_: param_type.clone(),
@@ -695,7 +722,7 @@ impl<'src> Typechecker<'src> {
                     let mut subst = HashMap::from_iter(
                         type_params
                             .iter()
-                            .map(|type_param| (type_param.clone(), None)),
+                            .map(|type_param| (*type_param, None)),
                     );
                     let mut params_elab = self.elab_params(&type_params, &mut subst, params)?;
                     self.new_scope_with_params(params_elab.clone());
@@ -731,7 +758,15 @@ impl<'src> Typechecker<'src> {
 
                     if params_elab.is_empty() {
                         match body_type {
-                            core::Type::Func(_, _) | _ if type_params.is_empty() => Ok((
+                            core::Type::Func(_, _) => Ok((
+                                body_elab,
+                                Scheme {
+                                    variables: type_params,
+                                    type_: body_type,
+                                },
+                            )),
+
+                            _ if type_params.is_empty() => Ok((
                                 body_elab,
                                 Scheme {
                                     variables: type_params,
@@ -775,16 +810,16 @@ impl<'src> Typechecker<'src> {
                     cont: box cont_elab,
                 })
             }
-            (surface::Expr::Ann(box expr, ann_type), mut expected_type) => {
+            (surface::Expr::Ann(box expr, ann_type), expected_type) => {
                 let mut ann_type =
                     self.surface_type_to_core_type(&Vec::new(), &mut HashMap::new(), ann_type)?;
-                self.unify(&mut ann_type, &mut expected_type)?;
+                self.unify(&mut ann_type, expected_type)?;
                 let expr_elab = self.check(expr, expected_type)?;
                 Ok(expr_elab)
             }
-            (expr, mut expected_type) => {
+            (expr, expected_type) => {
                 let (expr_elab, mut expr_type) = self.infer(expr)?;
-                self.unify(&mut expr_type, &mut expected_type)?;
+                self.unify(&mut expr_type, expected_type)?;
                 Ok(expr_elab)
             }
         }
@@ -874,10 +909,8 @@ impl<'src> Typechecker<'src> {
                         })
                     }?;
 
-                    if values.contains_key(&name) {
-                        Err(TypeError::AlreadyDefined(name))?
-                    } else {
-                        values.insert(name, decl_elab.clone());
+                    if let hash_map::Entry::Vacant(e) = values.entry(name) {
+                        e.insert(decl_elab.clone());
                         self.env.insert(
                             name,
                             Scheme {
@@ -885,6 +918,8 @@ impl<'src> Typechecker<'src> {
                                 type_: decl_elab.type_,
                             },
                         );
+                    } else {
+                        Err(TypeError::AlreadyDefined(name))?
                     }
                 }
             }
