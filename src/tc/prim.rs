@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::tc::syntax::{Type, Scheme};
+use crate::core::{Type,Scheme};
 
 lazy_static! {
     pub static ref PRIMITIVES: HashMap<&'static str, Scheme<'static>> = {

@@ -10,6 +10,7 @@ use bumpalo::Bump;
 use clap::Parser;
 
 mod tc;
+mod core;
 mod env;
 mod surface;
 
