@@ -45,15 +45,14 @@ fn main() {
     let source = source_storage.alloc(contents);
 
     let pipeline = PipelineBuilder::new()
-        .then(LogPass::new("parsing", true, FailliblePass::from(parse)))
-        .then(FailliblePass::new(typecheck))
-        .then(InplacePass::new(uncurry))
+        .then(LogDebugPass::new("parsing", true, FailliblePass::from(parse)))
+        .then(LogDebugPass::new(
+            "typechecking",
+            true,
+            FailliblePass::new(typecheck),
+        ))
+        .then(LogDebugPass::new("uncurrying", true, InplacePass::new(uncurry)))
         .build();
 
-    match pipeline.run(source) {
-        Ok(_) => {}
-        Err(err) => {
-            println!("Error: {err}");
-        }
-    };
+    pipeline.run(source);
 }
