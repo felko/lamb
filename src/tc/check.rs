@@ -463,8 +463,8 @@ impl<'src> Typechecker<'src> {
                     &mut Type::Func(param_types, box Type::TVar(return_var)),
                 )?;
                 let mut args_elab = Vec::new();
-                for (arg, param_type) in args.into_iter().zip(param_vars) {
-                    let arg_elab = self.check(arg, &mut Type::TVar(param_type))?;
+                for (arg, param_type) in args.iter().zip(param_vars) {
+                    let arg_elab = self.check(arg.clone(), &mut Type::TVar(param_type))?;
                     args_elab.push(arg_elab);
                 }
                 Ok((
@@ -615,7 +615,6 @@ impl<'src> Typechecker<'src> {
         type_: &mut Type<'src>,
     ) -> Result<tc::Expr<'src>, TypeError<'src>> {
         self.find(type_);
-        // let mut expr_type = (expr, type_);
         match (expr, type_) {
             (surface::Expr::Lit(value), Type::Int) => Ok(tc::Expr::Lit(value)),
             (surface::Expr::Var(name), expected_type) => {
@@ -656,66 +655,44 @@ impl<'src> Typechecker<'src> {
             ) => {
                 let param_count = params.len();
                 let param_type_count = param_types.len();
-                if param_count < param_type_count {
-                    let remaining_param_types = param_types.split_off(param_count);
-                    let mut params_typed = Vec::new();
-                    for (param, param_type) in params.iter().zip(param_types) {
-                        let binding = match param {
-                            surface::Binding::Inferred(name) => Ok(tc::Binding {
-                                name,
-                                type_: param_type.clone(),
-                            }),
-                            surface::Binding::Typed(name, expected_param_type) => {
-                                let mut expected_param_type = self.surface_type_to_tc_type(
-                                    &Vec::new(),
-                                    &mut HashMap::new(),
-                                    expected_param_type.clone(),
-                                )?;
-                                self.unify(param_type, &mut expected_param_type)?;
-                                Ok(tc::Binding {
-                                    name,
-                                    type_: param_type.clone(),
-                                })
-                            }
-                        }?;
-                        params_typed.push(binding);
-                    }
-                    self.new_scope_with_params(params_typed);
-                    let mut expected_body_type =
-                        Type::Func(remaining_param_types, box return_type.clone());
-                    let body_elab = self.check(body, &mut expected_body_type)?;
-                    self.env.pop_scope();
-                    Ok(body_elab)
+                let (remaining_params, remaining_param_types) = if param_count < param_type_count {
+                    (params.split_off(param_count), param_types.split_off(param_count))
                 } else {
-                    let remaining_params = params.split_off(param_type_count);
-                    let mut params_typed = Vec::new();
-                    for (param, param_type) in params.iter().zip(param_types) {
-                        let binding = match param {
-                            surface::Binding::Inferred(name) => Ok(tc::Binding {
+                    (params.split_off(param_type_count), param_types.split_off(param_type_count))
+                };
+                let mut params_typed = Vec::new();
+                for (param, param_type) in params.iter().zip(param_types) {
+                    let binding = match param {
+                        surface::Binding::Inferred(name) => Ok(tc::Binding {
+                            name,
+                            type_: param_type.clone(),
+                        }),
+                        surface::Binding::Typed(name, expected_param_type) => {
+                            let mut expected_param_type = self.surface_type_to_tc_type(
+                                &Vec::new(),
+                                &mut HashMap::new(),
+                                expected_param_type.clone(),
+                            )?;
+                            self.unify(param_type, &mut expected_param_type)?;
+                            Ok(tc::Binding {
                                 name,
                                 type_: param_type.clone(),
-                            }),
-                            surface::Binding::Typed(name, expected_param_type) => {
-                                let mut expected_param_type = self.surface_type_to_tc_type(
-                                    &Vec::new(),
-                                    &mut HashMap::new(),
-                                    expected_param_type.clone(),
-                                )?;
-                                self.unify(param_type, &mut expected_param_type)?;
-                                Ok(tc::Binding {
-                                    name,
-                                    type_: param_type.clone(),
-                                })
-                            }
-                        }?;
-                        params_typed.push(binding);
-                    }
-                    self.new_scope_with_params(params_typed);
-                    let body_elab =
-                        self.check(surface::Expr::Abs(remaining_params, box body), return_type)?;
-                    self.env.pop_scope();
-                    Ok(body_elab)
+                            })
+                        }
+                    }?;
+                    params_typed.push(binding);
                 }
+
+                self.new_scope_with_params(params_typed);
+                let (remaining_body, mut remaining_type) = match param_count.cmp(&param_type_count) {
+                    Ordering::Less => (body, Type::Func(remaining_param_types, box return_type.clone())),
+                    Ordering::Equal => (body, return_type.clone()),
+                    Ordering::Greater => (surface::Expr::Abs(remaining_params, box body), return_type.clone()),
+                };
+                let body_elab = self.check(remaining_body, &mut remaining_type)?;
+
+                self.env.pop_scope();
+                Ok(body_elab)
             }
             (
                 surface::Expr::Let {
