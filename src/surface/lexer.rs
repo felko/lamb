@@ -3,6 +3,7 @@ use logos::Logos;
 use std::fmt::Display;
 use std::num::ParseIntError;
 
+use crate::pretty::*;
 use crate::surface::Span;
 
 #[derive(Logos, Debug, PartialEq, Eq)]
@@ -130,6 +131,16 @@ impl Display for Error {
                 "Couldn't parse integer literal at position {span:?}: {err}"
             ),
         }
+    }
+}
+
+impl<'a> PrettyPrec<'a> for Error {
+    fn pretty_prec(
+        self,
+        _: crate::pretty::Prec,
+        allocator: &'a crate::pretty::DocAllocator<'a>,
+    ) -> crate::pretty::DocBuilder<'a> {
+        allocator.text(format!("{self}"))
     }
 }
 

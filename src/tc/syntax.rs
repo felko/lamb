@@ -1,7 +1,8 @@
-use std::collections::HashMap;
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::*};
 
 use slotmap;
+
+use crate::pretty::*;
 
 slotmap::new_key_type! {
     pub struct TVarKey;
@@ -74,101 +75,147 @@ pub enum Expr<'src> {
     },
 }
 
-impl<'src> Display for Module<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.values
-            .values()
-            .try_for_each(|decl| writeln!(f, "{decl}"))
+impl<'a, 'src> PrettyPrec<'a> for Module<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        allocator.intersperse(
+            self.values
+                .iter()
+                .map(|(_, decl)| decl.clone().pretty_prec(0, allocator)),
+            allocator.hardline().append(allocator.hardline()),
+        )
     }
 }
 
-fn fmt_list<T: Display>(
-    f: &mut std::fmt::Formatter<'_>,
-    delimiters: (&str, &str),
-    elements: Vec<T>,
-) -> std::fmt::Result {
-    if !elements.is_empty() {
-        write!(f, "{}{}", delimiters.0, elements[0])?;
-        elements
-            .iter()
-            .skip(1)
-            .try_for_each(|elem| write!(f, ", {}", elem))?;
-        write!(f, "{}", delimiters.1)
-    } else {
-        Ok(())
+impl<'a, 'src> PrettyPrec<'a> for ValueDecl<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        let mut result = allocator
+            .text("def")
+            .annotate(ColorSpec::new().set_bold(true).clone())
+            .append(allocator.space())
+            .append(allocator.text(self.name.to_owned()))
+            .append(allocator.space());
+
+        if !self.type_params.is_empty() {
+            result = result.append(
+                allocator
+                    .intersperse(
+                        self.type_params
+                            .iter()
+                            .map(|type_param| (*type_param).to_owned()),
+                        allocator.text(",").append(allocator.space()),
+                    )
+                    .angles(),
+            );
+        }
+
+        result = result
+            .append(allocator.space())
+            .append(":")
+            .append(self.type_.pretty_prec(0, allocator));
+
+        let value_pretty = self.value.pretty_prec(0, allocator);
+        result.append("=").append(
+            allocator
+                .space()
+                .append(allocator.hardline())
+                .append(value_pretty.indent(PRETTY_INDENT_SIZE)),
+        )
     }
 }
 
-impl<'src> Display for ValueDecl<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "def {}", self.name)?;
-        fmt_list(f, ("<", ">"), self.type_params.clone())?;
-        write!(f, " : {} = {}", self.type_, self.value)
-    }
-}
-
-impl<'src> Display for Scheme<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.variables.is_empty() {
-            write!(f, "{}", self.type_)
-        } else {
-            write!(f, "∀")?;
-            for variable in &self.variables {
-                write!(f, " {variable}")?;
-            }
-            write!(f, ". {}", self.type_)
+impl<'a, 'src> PrettyPrec<'a> for Type<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Type::Name { name } => allocator.text(name.to_owned()),
+            Type::Func(param_types, return_type) => allocator
+                .intersperse(
+                    param_types
+                        .iter()
+                        .map(|param_type| param_type.clone().pretty_prec(0, allocator)),
+                    allocator.space().append("->").append(allocator.space()),
+                )
+                .append(allocator.space())
+                .append("->")
+                .append(allocator.space())
+                .append(return_type.pretty_prec(0, allocator)),
+            Type::Int => allocator.text("Int"),
+            Type::Bool => allocator.text("Bool"),
+            Type::QVar(name) => allocator.text(name.clone()),
+            Type::TVar(tvar_key) => allocator.text(format!("{tvar_key:?}")),
         }
     }
 }
 
-impl<'src> Display for Type<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Name { name } => name.fmt(f),
-            Type::QVar(name) => name.fmt(f),
-            Type::TVar(tvar_key) => write!(f, "{tvar_key:?}"),
-            Type::Func(param_types, return_type) => {
-                write!(f, "(")?;
-                for param_type in param_types {
-                    write!(f, "{param_type} -> ")?;
-                }
-                write!(f, "{return_type})")
-            }
-            Type::Int => "Int".fmt(f),
-            Type::Bool => "Bool".fmt(f),
-        }
+impl<'a, 'src> PrettyPrec<'a> for Binding<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        allocator
+            .text("(")
+            .append(self.name.to_owned())
+            .append(allocator.space())
+            .append(":")
+            .append(allocator.space())
+            .append(self.type_.pretty_prec(0, allocator))
+            .append(")")
     }
 }
 
-impl<'src> Display for Binding<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({} : {})", self.name, self.type_)
-    }
-}
-
-impl<'src> Display for Expr<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
-            Expr::Lit(value) => write!(f, "{value}"),
+            Expr::Lit(value) => allocator.text(value.to_string()),
             Expr::Var { name, type_args } => {
-                write!(f, "{name}")?;
-                fmt_list(f, ("<", ">"), type_args.clone())
+                let result = allocator.text(name.to_owned());
+                if !type_args.is_empty() {
+                    result.append(
+                        allocator
+                            .intersperse(
+                                type_args
+                                    .iter()
+                                    .map(|type_arg| type_arg.clone().pretty_prec(0, allocator)),
+                                allocator.text(",").append(allocator.space()),
+                            )
+                            .angles(),
+                    )
+                } else {
+                    result
+                }
             }
             Expr::Abs {
                 params,
                 return_type,
                 body,
             } => {
-                write!(f, "(fun ")?;
-                for binding in params {
-                    write!(f, "{binding} ")?;
+                let result =
+                    allocator
+                        .text("fun")
+                        .annotate(ColorSpec::new().set_bold(true).clone())
+                        .append(allocator.space())
+                        .append(allocator.intersperse(
+                            params
+                                .iter()
+                                .map(|param| param.clone().pretty_prec(0, allocator)),
+                            allocator.space(),
+                        ))
+                        .append(allocator.space())
+                        .append(":")
+                        .append(allocator.space())
+                        .append(return_type.pretty_prec(0, allocator))
+                        .append(allocator.space())
+                        .append("=>")
+                        .append(allocator.hardline())
+                        .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
                 }
-                write!(f, ": {return_type} => ")?;
-                write!(f, "{body})")
             }
-            Expr::Add(lhs, rhs) => {
-                write!(f, "{lhs} + {rhs}")
-            }
+            Expr::Add(lhs, rhs) => lhs
+                .pretty_prec(1, allocator)
+                .append(allocator.space())
+                .append("+")
+                .append(allocator.space())
+                .append(rhs.pretty_prec(1, allocator)),
             Expr::Let {
                 name,
                 type_params,
@@ -176,16 +223,62 @@ impl<'src> Display for Expr<'src> {
                 value,
                 cont,
             } => {
-                write!(f, "(let {name}")?;
-                fmt_list(f, ("<", ">"), type_params.clone())?;
-                write!(f, " : {type_} = {value} in {cont})")
+                let mut result = allocator
+                    .text("let")
+                    .annotate(ColorSpec::new().set_bold(true).clone())
+                    .append(allocator.space())
+                    .append(allocator.text(name.to_owned()))
+                    .append(allocator.space());
+
+                if !type_params.is_empty() {
+                    result = result.append(
+                        allocator
+                            .intersperse(
+                                type_params
+                                    .iter()
+                                    .map(|type_param| (*type_param).to_owned()),
+                                allocator.text(",").append(allocator.space()),
+                            )
+                            .angles(),
+                    )
+                }
+
+                result = result.append(":").append(type_.pretty_prec(0, allocator));
+
+                let value_pretty = value.pretty_prec(0, allocator);
+                result = result.append("=").append(
+                    allocator
+                        .space()
+                        .append(allocator.hardline())
+                        .append(value_pretty.indent(PRETTY_INDENT_SIZE))
+                        .append(allocator.hardline())
+                        .append(
+                            allocator
+                                .text("in")
+                                .annotate(ColorSpec::new().set_bold(true).clone()),
+                        )
+                        .append(allocator.hardline())
+                        .append(cont.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
+                );
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
             }
             Expr::App { callee, args } => {
-                write!(f, "({callee}")?;
-                for arg in args {
-                    write!(f, " {arg}")?;
+                let result = callee
+                    .pretty_prec(2, allocator)
+                    .append(allocator.space())
+                    .append(allocator.intersperse(
+                        args.iter().map(|arg| arg.clone().pretty_prec(2, allocator)),
+                        allocator.space(),
+                    ));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
                 }
-                write!(f, ")")
             }
         }
     }

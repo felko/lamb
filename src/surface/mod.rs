@@ -12,6 +12,18 @@ pub use syntax::*;
 
 pub use lalrpop_util::ParseError;
 
+use crate::pretty::*;
+
+impl<'src, 'a> PrettyPrec<'a> for ParseError<usize, Token<'src>, LexerError> {
+    fn pretty_prec(
+        self,
+        _: crate::pretty::Prec,
+        allocator: &'a crate::pretty::DocAllocator<'a>,
+    ) -> crate::pretty::DocBuilder<'a> {
+        allocator.text(format!("{self}"))
+    }
+}
+
 pub fn parse(source: &str) -> Result<Module, ParseError<usize, Token, LexerError>> {
     let mut lexer = Lexer::new(source);
     let mut errors = Vec::new();

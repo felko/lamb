@@ -1,7 +1,4 @@
-use std::fmt::Display;
-
 use crate::pretty::*;
-use pretty::DocAllocator as PrettyAllocator;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type<'src> {
@@ -51,14 +48,6 @@ pub struct Module<'src> {
     pub declarations: Vec<Decl<'src>>,
 }
 
-impl<'src> Display for Module<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.declarations
-            .iter()
-            .try_for_each(|decl| writeln!(f, "{decl}"))
-    }
-}
-
 impl<'src, 'a> PrettyPrec<'a> for Module<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         allocator.intersperse(
@@ -67,46 +56,6 @@ impl<'src, 'a> PrettyPrec<'a> for Module<'src> {
                 .map(|decl| decl.clone().pretty_prec(0, allocator)),
             allocator.hardline().append(allocator.hardline()),
         )
-    }
-}
-
-fn show_type_params<'src>(
-    f: &mut std::fmt::Formatter<'_>,
-    type_params: Vec<&'src str>,
-) -> std::fmt::Result {
-    if !type_params.is_empty() {
-        write!(f, "<{}", type_params[0])?;
-        type_params
-            .iter()
-            .skip(1)
-            .try_for_each(|param| write!(f, ", {}", param))?;
-        write!(f, ">")
-    } else {
-        Ok(())
-    }
-}
-
-impl<'src> Display for Decl<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Decl::Func {
-                name,
-                type_params,
-                params,
-                return_type,
-                body,
-            } => {
-                write!(f, "def {name}")?;
-                show_type_params(f, type_params.clone())?;
-                params
-                    .iter()
-                    .try_for_each(|binding| write!(f, "{binding} "))?;
-                if let Some(return_type) = return_type {
-                    write!(f, ": {return_type} ")?;
-                }
-                write!(f, "= {body}")
-            }
-        }
     }
 }
 
@@ -164,22 +113,6 @@ impl<'src, 'a> PrettyPrec<'a> for Decl<'src> {
     }
 }
 
-impl<'src> Display for Type<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Name(name) => name.fmt(f),
-            Type::Func(param_types, return_type) => {
-                for binding in param_types {
-                    write!(f, "{binding} -> ")?;
-                }
-                write!(f, "{return_type}")
-            }
-            Type::Int => "Int".fmt(f),
-            Type::Bool => "Bool".fmt(f),
-        }
-    }
-}
-
 impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
@@ -201,15 +134,6 @@ impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
     }
 }
 
-impl<'src> Display for Binding<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Binding::Typed(name, type_) => write!(f, "({} : {})", name, type_),
-            Binding::Inferred(name) => write!(f, "{}", name),
-        }
-    }
-}
-
 impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
@@ -222,54 +146,6 @@ impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
                 .append(type_.pretty_prec(0, allocator))
                 .append(")"),
             Binding::Inferred(name) => allocator.text(name.to_owned()),
-        }
-    }
-}
-
-impl<'src> Display for Expr<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Expr::Lit(value) => write!(f, "{value}"),
-            Expr::Var(name) => write!(f, "{name}"),
-            Expr::Abs(params, body) => {
-                write!(f, "(fun ")?;
-                for binding in params {
-                    write!(f, "{binding} ")?;
-                }
-                write!(f, "=> ")?;
-                write!(f, "{body})")
-            }
-            Expr::Add(lhs, rhs) => {
-                write!(f, "{lhs} + {rhs}")
-            }
-            Expr::Let {
-                name,
-                type_params,
-                params,
-                return_type,
-                body,
-                cont,
-            } => {
-                write!(f, "(let {name}")?;
-                show_type_params(f, type_params.clone())?;
-                for binding in params {
-                    write!(f, "{binding} ")?;
-                }
-                if let Some(return_type) = return_type {
-                    write!(f, ": {return_type} ")?;
-                }
-                write!(f, "= {body} in {cont})")
-            }
-            Expr::App(callee, args) => {
-                write!(f, "({callee}")?;
-                for arg in args {
-                    write!(f, " {arg}")?;
-                }
-                write!(f, ")")
-            }
-            Expr::Ann(expr, type_) => {
-                write!(f, "({expr} : {type_})")
-            }
         }
     }
 }
