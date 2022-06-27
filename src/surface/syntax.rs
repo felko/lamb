@@ -1,5 +1,8 @@
 use std::fmt::Display;
 
+use crate::pretty::*;
+use pretty::DocAllocator as PrettyAllocator;
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type<'src> {
     Name(&'src str),
@@ -56,6 +59,17 @@ impl<'src> Display for Module<'src> {
     }
 }
 
+impl<'src, 'a> PrettyPrec<'a> for Module<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        allocator.intersperse(
+            self.declarations
+                .iter()
+                .map(|decl| decl.clone().pretty_prec(0, allocator)),
+            allocator.hardline().append(allocator.hardline()),
+        )
+    }
+}
+
 fn show_type_params<'src>(
     f: &mut std::fmt::Formatter<'_>,
     type_params: Vec<&'src str>,
@@ -96,6 +110,60 @@ impl<'src> Display for Decl<'src> {
     }
 }
 
+impl<'src, 'a> PrettyPrec<'a> for Decl<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Decl::Func {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+            } => {
+                let mut result = allocator
+                    .text("def")
+                    .annotate(ColorSpec::new().set_bold(true).clone())
+                    .append(allocator.space())
+                    .append(allocator.text(name.to_owned()))
+                    .append(allocator.space());
+
+                if !type_params.is_empty() {
+                    result = result.append(
+                        allocator
+                            .intersperse(
+                                type_params
+                                    .iter()
+                                    .map(|type_param| (*type_param).to_owned()),
+                                allocator.text(",").append(allocator.space()),
+                            )
+                            .angles(),
+                    );
+                }
+
+                result = result.append(allocator.concat(params.iter().map(|param| {
+                    param
+                        .clone()
+                        .pretty_prec(0, allocator)
+                        .append(allocator.space())
+                })));
+
+                if let Some(return_type) = return_type {
+                    result = result
+                        .append(":")
+                        .append(return_type.pretty_prec(0, allocator));
+                }
+                let body_pretty = body.pretty_prec(0, allocator);
+                result.append("=").append(
+                    allocator
+                        .space()
+                        .append(allocator.hardline())
+                        .append(body_pretty.indent(PRETTY_INDENT_SIZE)),
+                )
+            }
+        }
+    }
+}
+
 impl<'src> Display for Type<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -112,11 +180,48 @@ impl<'src> Display for Type<'src> {
     }
 }
 
+impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Type::Name(name) => allocator.text(name.to_owned()),
+            Type::Func(param_types, return_type) => allocator
+                .intersperse(
+                    param_types
+                        .iter()
+                        .map(|param_type| param_type.clone().pretty_prec(0, allocator)),
+                    allocator.space().append("->").append(allocator.space()),
+                )
+                .append(allocator.space())
+                .append("->")
+                .append(allocator.space())
+                .append(return_type.pretty_prec(0, allocator)),
+            Type::Int => allocator.text("Int"),
+            Type::Bool => allocator.text("Bool"),
+        }
+    }
+}
+
 impl<'src> Display for Binding<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Binding::Typed(name, type_) => write!(f, "({} : {})", name, type_),
             Binding::Inferred(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
+    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Binding::Typed(name, type_) => allocator
+                .text("(")
+                .append(name.to_owned())
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(type_.pretty_prec(0, allocator))
+                .append(")"),
+            Binding::Inferred(name) => allocator.text(name.to_owned()),
         }
     }
 }
@@ -165,6 +270,125 @@ impl<'src> Display for Expr<'src> {
             Expr::Ann(expr, type_) => {
                 write!(f, "({expr} : {type_})")
             }
+        }
+    }
+}
+
+impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Expr::Lit(value) => allocator.text(value.to_string()),
+            Expr::Var(name) => allocator.text(name.to_owned()),
+            Expr::Abs(params, body) => {
+                let result =
+                    allocator
+                        .text("fun")
+                        .annotate(ColorSpec::new().set_bold(true).clone())
+                        .append(allocator.space())
+                        .append(allocator.intersperse(
+                            params
+                                .iter()
+                                .map(|param| param.clone().pretty_prec(0, allocator)),
+                            allocator.space(),
+                        ))
+                        .append(allocator.space())
+                        .append("=>")
+                        .append(allocator.hardline())
+                        .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
+            Expr::Add(lhs, rhs) => lhs
+                .pretty_prec(1, allocator)
+                .append(allocator.space())
+                .append("+")
+                .append(allocator.space())
+                .append(rhs.pretty_prec(1, allocator)),
+            Expr::Let {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                cont,
+            } => {
+                let mut result = allocator
+                    .text("let")
+                    .annotate(ColorSpec::new().set_bold(true).clone())
+                    .append(allocator.space())
+                    .append(allocator.text(name.to_owned()))
+                    .append(allocator.space());
+
+                if !type_params.is_empty() {
+                    result = result.append(
+                        allocator
+                            .intersperse(
+                                type_params
+                                    .iter()
+                                    .map(|type_param| (*type_param).to_owned()),
+                                allocator.text(",").append(allocator.space()),
+                            )
+                            .angles(),
+                    )
+                }
+
+                result = result.append(allocator.concat(params.iter().map(|param| {
+                    param
+                        .clone()
+                        .pretty_prec(0, allocator)
+                        .append(allocator.space())
+                })));
+
+                if let Some(return_type) = return_type {
+                    result = result
+                        .append(":")
+                        .append(return_type.pretty_prec(0, allocator));
+                }
+                let body_pretty = body.pretty_prec(0, allocator);
+                result = result.append("=").append(
+                    allocator
+                        .space()
+                        .append(allocator.hardline())
+                        .append(body_pretty.indent(PRETTY_INDENT_SIZE))
+                        .append(allocator.hardline())
+                        .append(
+                            allocator
+                                .text("in")
+                                .annotate(ColorSpec::new().set_bold(true).clone()),
+                        )
+                        .append(allocator.hardline())
+                        .append(cont.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
+                );
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
+            Expr::App(callee, args) => {
+                let result = callee
+                    .pretty_prec(2, allocator)
+                    .append(allocator.space())
+                    .append(allocator.intersperse(
+                        args.iter().map(|arg| arg.clone().pretty_prec(2, allocator)),
+                        allocator.space(),
+                    ));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
+            Expr::Ann(expr, type_) => expr
+                .pretty_prec(1, allocator)
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(type_.pretty_prec(0, allocator))
+                .parens(),
         }
     }
 }
