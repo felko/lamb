@@ -15,6 +15,7 @@ mod pipeline;
 
 mod core;
 mod env;
+mod pretty;
 mod surface;
 mod tc;
 
@@ -36,18 +37,18 @@ fn main() {
     let args = Args::parse();
     let source_storage = Bump::new();
 
-    let pipeline = PipelineBuilder::new()
-        .then_try("parsing", parse, false)
-        .then_try("typechecking", typecheck, true)
-        .then_mut("uncurrying", uncurry, true)
-        .build();
-
     let mut file =
         File::open(&args.path).unwrap_or_else(|_| panic!("IO error: Failed to open file"));
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .unwrap_or_else(|_| panic!("IO error: failed to read file"));
     let source = source_storage.alloc(contents);
+
+    let pipeline = PipelineBuilder::new()
+        .then(LogPass::new("parsing", true, FailliblePass::from(parse)))
+        .then(FailliblePass::new(typecheck))
+        .then(InplacePass::new(uncurry))
+        .build();
 
     match pipeline.run(source) {
         Ok(_) => {}

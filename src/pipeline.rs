@@ -1,12 +1,14 @@
 use std::{fmt::Display, marker::PhantomData};
 
+use crate::pretty::PrettyPrec;
+
 pub trait LambError = Display;
-pub trait IR = Clone + Display;
 
-type Result<'a, T> = std::result::Result<T, Box<dyn LambError + 'a>>;
+type Result<'src, T> = std::result::Result<T, Box<dyn LambError + 'src>>;
 
-pub trait Pass<'a, Source, Target> {
-    fn run(&self, input: Source) -> Result<'a, Target>;
+pub trait Pass<Source, Target> {
+    type Error;
+    fn run(&self, input: Source) -> std::result::Result<Target, Self::Error>;
 }
 
 pub struct SimplePass<Source, Target, F: Fn(Source) -> Target> {
@@ -25,12 +27,22 @@ impl<Source, Target, F: Fn(Source) -> Target> SimplePass<Source, Target, F> {
     }
 }
 
-impl<'a, Source: 'a, Target: IR + 'a, F> Pass<'a, Source, Target> for SimplePass<Source, Target, F>
+impl<Source, Target, F> Pass<Source, Target> for SimplePass<Source, Target, F>
 where
     F: Fn(Source) -> Target,
 {
-    fn run(&self, input: Source) -> Result<'a, Target> {
+    type Error = !;
+    fn run(&self, input: Source) -> std::result::Result<Target, !> {
         Ok((self.run)(input))
+    }
+}
+
+impl<Source, Target, F> From<F> for SimplePass<Source, Target, F>
+where
+    F: Fn(Source) -> Target,
+{
+    fn from(pass: F) -> Self {
+        SimplePass::new(pass)
     }
 }
 
@@ -55,16 +67,22 @@ impl<Source, Target, Error, F: Fn(Source) -> std::result::Result<Target, Error>>
     }
 }
 
-impl<'a, Source: 'a, Target: IR + 'a, Error: LambError + 'a, F> Pass<'a, Source, Target>
-    for FailliblePass<Source, Target, Error, F>
+impl<Source, Target, Error, F> Pass<Source, Target> for FailliblePass<Source, Target, Error, F>
 where
     F: Fn(Source) -> std::result::Result<Target, Error>,
 {
-    fn run(&self, input: Source) -> Result<'a, Target> {
-        match (self.run)(input) {
-            Ok(output) => Ok(output),
-            Err(error) => Err(box error),
-        }
+    type Error = Error;
+    fn run(&self, input: Source) -> std::result::Result<Target, Error> {
+        (self.run)(input)
+    }
+}
+
+impl<Source, Target, Error, F> From<F> for FailliblePass<Source, Target, Error, F>
+where
+    F: Fn(Source) -> std::result::Result<Target, Error>,
+{
+    fn from(pass: F) -> Self {
+        FailliblePass::new(pass)
     }
 }
 
@@ -82,56 +100,105 @@ impl<Source, F: Fn(&mut Source)> InplacePass<Source, F> {
     }
 }
 
-impl<'a, Source: IR + 'a, F> Pass<'a, Source, Source> for InplacePass<Source, F>
+impl<Source, F> Pass<Source, Source> for InplacePass<Source, F>
 where
     F: Fn(&mut Source),
 {
-    fn run(&self, mut input: Source) -> Result<'a, Source> {
+    type Error = !;
+    fn run(&self, mut input: Source) -> std::result::Result<Source, !> {
         (self.run)(&mut input);
         Ok(input)
     }
 }
 
-pub trait Pipeline<'a, Source, Target> {
-    fn run(&self, input: Source) -> Result<'a, Target>;
-}
-
-struct IdPipeline<'a, Source> {
-    _source: PhantomData<&'a Source>,
-}
-
-impl<'a, Source> Pipeline<'a, Source, Source> for IdPipeline<'a, Source> {
-    fn run(&self, input: Source) -> Result<'a, Source> {
-        Ok(input)
+impl<Source, F> From<F> for InplacePass<Source, F>
+where
+    F: Fn(&mut Source),
+{
+    fn from(pass: F) -> Self {
+        InplacePass::new(pass)
     }
 }
 
-struct PassPipeline<'a, Source, Intermediate, Target> {
-    pipeline: Box<dyn Pipeline<'a, Source, Intermediate> + 'a>,
+pub struct LogPass<'pl, Source, Target, Error> {
+    pass: Box<dyn Pass<Source, Target, Error = Error> + 'pl>,
     name: &'static str,
     log: bool,
-    pass: Box<dyn Pass<'a, Intermediate, Target> + 'a>,
 }
 
-impl<'a, Source: 'a, Intermediate: IR + 'a, Target: IR + 'a> Pipeline<'a, Source, Target>
-    for PassPipeline<'a, Source, Intermediate, Target>
+impl<'pl, Source, Target, Error> LogPass<'pl, Source, Target, Error> {
+    pub fn new(
+        name: &'static str,
+        log: bool,
+        pass: impl Pass<Source, Target, Error = Error> + 'pl,
+    ) -> LogPass<'pl, Source, Target, Error> {
+        LogPass {
+            pass: box pass,
+            name,
+            log,
+        }
+    }
+}
+
+impl<'pl, Source, Target, Error> Pass<Source, Target> for LogPass<'pl, Source, Target, Error>
+where
+    for<'a> Target: PrettyPrec<'a> + Clone,
 {
-    fn run(&self, input: Source) -> Result<'a, Target> {
-        let intermediate = self.pipeline.run(input)?;
-        let target = self.pass.run(intermediate)?;
+    type Error = Error;
+    fn run(&self, input: Source) -> std::result::Result<Target, Error> {
+        let target = self.pass.run(input)?;
+        let allocator = pretty::Arena::new();
+        let doc = target.clone().pretty_prec(0, &allocator);
         if self.log {
-            println!("{}:\n{}\n", self.name, target);
+            println!("{}", self.name);
+            doc.render_colored(
+                80,
+                termcolor::StandardStream::stdout(termcolor::ColorChoice::Auto),
+            )
+            .unwrap();
+            println!();
         }
         Ok(target)
     }
 }
 
-pub struct PipelineBuilder<'a, Source, Target> {
-    pipeline: Box<dyn Pipeline<'a, Source, Target> + 'a>,
+pub trait Pipeline<'pl, Source, Target> {
+    fn run(&self, input: Source) -> Result<'pl, Target>;
 }
 
-impl<'a, Source: 'a> PipelineBuilder<'a, Source, Source> {
-    pub fn new() -> PipelineBuilder<'a, Source, Source> {
+struct IdPipeline<'pl, Source> {
+    _source: PhantomData<&'pl Source>,
+}
+
+impl<'pl, Source> Pipeline<'pl, Source, Source> for IdPipeline<'pl, Source> {
+    fn run(&self, input: Source) -> Result<'pl, Source> {
+        Ok(input)
+    }
+}
+
+struct PassPipeline<'pl, Source, Intermediate, Target, Error> {
+    pipeline: Box<dyn Pipeline<'pl, Source, Intermediate> + 'pl>,
+    pass: Box<dyn Pass<Intermediate, Target, Error = Error> + 'pl>,
+}
+
+impl<'pl, Source, Intermediate, Target, Error: LambError + 'pl> Pipeline<'pl, Source, Target>
+    for PassPipeline<'pl, Source, Intermediate, Target, Error>
+{
+    fn run(&self, input: Source) -> Result<'pl, Target> {
+        let intermediate = self.pipeline.run(input)?;
+        match self.pass.run(intermediate) {
+            Ok(target) => Ok(target),
+            Err(error) => Err(box error),
+        }
+    }
+}
+
+pub struct PipelineBuilder<'pl, Source, Target> {
+    pipeline: Box<dyn Pipeline<'pl, Source, Target> + 'pl>,
+}
+
+impl<'pl, Source: 'pl> PipelineBuilder<'pl, Source, Source> {
+    pub fn new() -> PipelineBuilder<'pl, Source, Source> {
         PipelineBuilder {
             pipeline: box IdPipeline {
                 _source: PhantomData,
@@ -140,57 +207,28 @@ impl<'a, Source: 'a> PipelineBuilder<'a, Source, Source> {
     }
 }
 
-impl<'a, Source: 'a, Intermediate: IR + 'a> PipelineBuilder<'a, Source, Intermediate> {
-    pub fn add_pass<Target: IR + 'a>(
+impl<'pl, Source, Intermediate> PipelineBuilder<'pl, Source, Intermediate> {
+    pub fn then<Target, Error>(
         self,
-        name: &'static str,
-        pass: impl Pass<'a, Intermediate, Target> + 'a,
-        log: bool,
-    ) -> PipelineBuilder<'a, Source, Target> {
+        pass: impl Pass<Intermediate, Target, Error = Error> + 'pl,
+    ) -> PipelineBuilder<'pl, Source, Target>
+    where
+        Source: 'pl,
+        Intermediate: 'pl,
+        Target: 'pl,
+        Error: LambError + 'pl,
+    {
         PipelineBuilder {
             pipeline: box PassPipeline {
                 pipeline: self.pipeline,
-                name,
-                log,
                 pass: box pass,
             },
         }
     }
-
-    pub fn then<Target: IR + 'a, F: Fn(Intermediate) -> Target + 'a>(
-        self,
-        name: &'static str,
-        pass: F,
-        log: bool,
-    ) -> PipelineBuilder<'a, Source, Target> {
-        self.add_pass(name, SimplePass::new(pass), log)
-    }
-
-    pub fn then_try<
-        Target: IR + 'a,
-        Error: LambError + 'a,
-        F: Fn(Intermediate) -> std::result::Result<Target, Error> + 'a,
-    >(
-        self,
-        name: &'static str,
-        pass: F,
-        log: bool,
-    ) -> PipelineBuilder<'a, Source, Target> {
-        self.add_pass(name, FailliblePass::new(pass), log)
-    }
-
-    pub fn then_mut<F: Fn(&mut Intermediate) + 'a>(
-        self,
-        name: &'static str,
-        pass: F,
-        log: bool,
-    ) -> PipelineBuilder<'a, Source, Intermediate> {
-        self.add_pass(name, InplacePass::new(pass), log)
-    }
 }
 
-impl<'a, Source: 'a, Target: IR + 'a> PipelineBuilder<'a, Source, Target> {
-    pub fn build(self) -> Box<dyn Pipeline<'a, Source, Target> + 'a> {
+impl<'pl, Source, Target> PipelineBuilder<'pl, Source, Target> {
+    pub fn build(self) -> Box<dyn Pipeline<'pl, Source, Target> + 'pl> {
         self.pipeline
     }
 }
