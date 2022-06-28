@@ -34,15 +34,6 @@ where
     }
 }
 
-impl<Source, Target, F> From<F> for SimplePass<Source, Target, F>
-where
-    F: Fn(Source) -> Target,
-{
-    fn from(pass: F) -> Self {
-        SimplePass::new(pass)
-    }
-}
-
 pub struct FailliblePass<Source, Target, Error, F: Fn(Source) -> Result<Target, Error>> {
     _source: PhantomData<Source>,
     _target: PhantomData<Target>,
@@ -73,15 +64,6 @@ where
     }
 }
 
-impl<Source, Target, Error, F> From<F> for FailliblePass<Source, Target, Error, F>
-where
-    F: Fn(Source) -> Result<Target, Error>,
-{
-    fn from(pass: F) -> Self {
-        FailliblePass::new(pass)
-    }
-}
-
 pub struct InplacePass<Source, F: Fn(&mut Source)> {
     _source: PhantomData<Source>,
     run: F,
@@ -104,15 +86,6 @@ where
     fn run(&self, mut input: Source) -> Result<Source, !> {
         (self.run)(&mut input);
         Ok(input)
-    }
-}
-
-impl<Source, F> From<F> for InplacePass<Source, F>
-where
-    F: Fn(&mut Source),
-{
-    fn from(pass: F) -> Self {
-        InplacePass::new(pass)
     }
 }
 
@@ -152,7 +125,7 @@ where
                 termcolor::StandardStream::stdout(termcolor::ColorChoice::Auto),
             )
             .unwrap();
-            println!();
+            println!("\n");
         }
         Ok(target)
     }
