@@ -440,12 +440,19 @@ impl<'src> Typechecker<'src> {
         }
     }
 
+    fn infer_literal(literal: &surface::Literal) -> Type<'src> {
+        match literal {
+            surface::Literal::Int(_) => tc::Type::Int,
+            surface::Literal::Bool(_) => tc::Type::Bool,
+        }
+    }
+
     fn infer(
         &mut self,
         expr: surface::Expr<'src>,
     ) -> Result<(tc::Expr<'src>, Type<'src>), TypeError<'src>> {
         match expr {
-            surface::Expr::Lit(value) => Ok((tc::Expr::Lit(value), Type::Int)),
+            surface::Expr::Lit(literal) => Ok((tc::Expr::Lit(literal.clone()), Self::infer_literal(&literal))),
             surface::Expr::Var(name) => {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (instantiated, type_args) = self.instantiate(scheme.clone());
@@ -643,7 +650,8 @@ impl<'src> Typechecker<'src> {
     ) -> Result<tc::Expr<'src>, TypeError<'src>> {
         self.find(type_);
         match (expr, type_) {
-            (surface::Expr::Lit(value), Type::Int) => Ok(tc::Expr::Lit(value)),
+            (surface::Expr::Lit(literal @ surface::Literal::Int(_)), Type::Int) => Ok(tc::Expr::Lit(literal)),
+            (surface::Expr::Lit(literal @ surface::Literal::Bool(_)), Type::Bool) => Ok(tc::Expr::Lit(literal)),
             (surface::Expr::Var(name), expected_type) => {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (mut var_type, type_args) = self.instantiate(scheme.clone());
@@ -998,7 +1006,7 @@ impl<'src> Typechecker<'src> {
 
     fn expr_tc_to_core(&self, expr: tc::Expr<'src>) -> core::Expr<'src> {
         match expr {
-            tc::Expr::Lit(value) => core::Expr::Lit(value),
+            tc::Expr::Lit(literal) => core::Expr::Lit(literal),
             tc::Expr::Var { name, type_args } => core::Expr::Var {
                 name,
                 type_args: type_args

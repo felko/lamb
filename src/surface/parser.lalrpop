@@ -1,5 +1,5 @@
 use crate::surface::lexer::{Token, Error};
-use crate::surface::syntax::{Module, Decl, Type, Expr, Binding};
+use crate::surface::syntax::{Module, Decl, Type, Literal, Expr, Binding};
 
 grammar<'src>(
     errors: &mut Vec<Error>
@@ -31,6 +31,8 @@ extern {
         "Bool" => Token::Bool,
         Identifier => Token::Identifier(<&'src str>),
         Number => Token::Number(<i32>),
+        "true" => Token::True,
+        "false" => Token::False,
     }
 }
 
@@ -90,6 +92,16 @@ Binding: Binding<'src> = {
     },
 }
 
+Bool: bool = {
+    "true" => true,
+    "false" => false,
+}
+
+Literal: Literal = {
+    <x: Number> => Literal::Int(x),
+    <b: Bool> => Literal::Bool(b),
+}
+
 Expr = Expr0;
 
 Expr0: Expr<'src> = {
@@ -118,7 +130,7 @@ Expr3: Expr<'src> = {
 }
 
 Expr4: Expr<'src> = {
-    Number => Expr::Lit(<>),
+    Literal => Expr::Lit(<>),
     Identifier => Expr::Var(<>),
     "(" <Expr0> ")" => <>,
 }

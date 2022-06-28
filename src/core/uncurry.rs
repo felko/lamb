@@ -49,6 +49,11 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
             uncurry_expr(value);
             uncurry_expr(cont);
         }
+        If { cond, then, else_ } => {
+            uncurry_expr(cond);
+            uncurry_expr(then);
+            uncurry_expr(else_);
+        }
         App { callee, args } => {
             uncurry_expr(callee);
             args.iter_mut().for_each(uncurry_expr);
@@ -63,7 +68,8 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
                 args.extend(original_args);
             }
         }
-        _ => {}
+        Lit(_) => {}
+        Var { .. } => {}
     }
 }
 

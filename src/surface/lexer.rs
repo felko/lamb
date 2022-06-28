@@ -68,6 +68,10 @@ pub enum TokenType {
     // Literals
     #[regex(r"-?([0-9]+)")]
     Number,
+    #[token("true")]
+    True,
+    #[token("false")]
+    False,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +97,8 @@ pub enum Token<'src> {
     Bool,
     Identifier(&'src str),
     Number(i32),
+    True,
+    False,
 }
 
 #[derive(Debug)]
@@ -130,6 +136,8 @@ impl<'src> Display for Token<'src> {
             Token::Bool => write!(f, "Bool"),
             Token::Identifier(ident) => write!(f, "{ident}"),
             Token::Number(num) => write!(f, "{num}"),
+            Token::True => write!(f, "true"),
+            Token::False => write!(f, "false"),
         }
     }
 }
@@ -206,6 +214,8 @@ impl<'src> Lexer<'src> {
                 Ok(v) => Ok(Token::Number(v)),
                 Err(e) => Err(Error::InvalidInt(self.logos.span(), e)),
             },
+            TokenType::True => Ok(Token::True),
+            TokenType::False => Ok(Token::False),
         }
     }
 }

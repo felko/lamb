@@ -12,7 +12,7 @@ use bumpalo::Bump;
 use clap::Parser;
 
 mod pipeline;
-
+mod common;
 mod core;
 mod env;
 mod pretty;

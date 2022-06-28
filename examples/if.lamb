@@ -1,0 +1,25 @@
+def and a b =
+    if a then
+        b
+    else
+        false
+
+def or a b =
+    if a then
+        true
+    else
+        b
+
+def not a =
+    if a then
+        false
+    else
+        true
+
+def xor a b =
+    if and a b then
+        false
+    else if and (not a) (not b) then
+        false
+    else
+        true

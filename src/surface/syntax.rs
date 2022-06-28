@@ -1,4 +1,5 @@
 use crate::pretty::*;
+pub use crate::common::Literal;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type<'src> {
@@ -16,7 +17,7 @@ pub enum Binding<'src> {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Expr<'src> {
-    Lit(i32),
+    Lit(Literal),
     Var(&'src str),
     Abs(Vec<Binding<'src>>, Box<Expr<'src>>),
     Add(Box<Expr<'src>>, Box<Expr<'src>>),
@@ -163,7 +164,7 @@ impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
 impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
     fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
-            Expr::Lit(value) => allocator.text(value.to_string()),
+            Expr::Lit(lit) => lit.pretty_prec(0, allocator),
             Expr::Var(name) => allocator.text(name.to_owned()),
             Expr::Abs(params, body) => {
                 let result =

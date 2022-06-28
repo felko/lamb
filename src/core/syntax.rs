@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+pub use crate::common::Literal;
 use crate::pretty::*;
 
 #[derive(Debug, Clone)]
@@ -38,7 +39,7 @@ pub struct Binding<'src> {
 
 #[derive(Debug, Clone)]
 pub enum Expr<'src> {
-    Lit(i32),
+    Lit(Literal),
     Var {
         name: &'src str,
         type_args: Vec<Type<'src>>,
@@ -159,7 +160,7 @@ impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
 impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
     fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
-            Expr::Lit(value) => allocator.text(value.to_string()),
+            Expr::Lit(literal) => literal.pretty_prec(0, allocator),
             Expr::Var { name, type_args } => {
                 let result = allocator.text(name.to_owned());
                 if !type_args.is_empty() {
