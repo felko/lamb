@@ -1,12 +1,6 @@
-use std::{collections::HashMap, fmt::*};
-
-use slotmap;
+use std::collections::HashMap;
 
 use crate::pretty::*;
-
-slotmap::new_key_type! {
-    pub struct TVarKey;
-}
 
 #[derive(Debug, Clone)]
 pub struct Module<'src> {
@@ -22,16 +16,9 @@ pub struct ValueDecl<'src> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TVar<'src> {
-    Unbound { index: u32, level: u8 },
-    Bound(Type<'src>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type<'src> {
     Name { name: &'src str },
     QVar(String),
-    TVar(TVarKey),
     Func(Vec<Type<'src>>, Box<Type<'src>>),
     Int,
     Bool,
@@ -50,18 +37,23 @@ pub struct Binding<'src> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr<'src> {
-    Lit(i32),
+pub enum Atom<'src> {
     Var {
         name: &'src str,
         type_args: Vec<Type<'src>>,
     },
+    Lit(i32),
+}
+
+#[derive(Debug, Clone)]
+pub enum Expr<'src> {
+    Atom(Atom<'src>),
     Abs {
         params: Vec<Binding<'src>>,
         return_type: Type<'src>,
         body: Box<Expr<'src>>,
     },
-    Add(Box<Expr<'src>>, Box<Expr<'src>>),
+    Add(Atom<'src>, Atom<'src>),
     Let {
         name: &'src str,
         type_params: Vec<String>,
@@ -70,12 +62,12 @@ pub enum Expr<'src> {
         cont: Box<Expr<'src>>,
     },
     App {
-        callee: Box<Expr<'src>>,
-        args: Vec<Expr<'src>>,
+        callee: Box<Atom<'src>>,
+        args: Vec<Atom<'src>>,
     },
 }
 
-impl<'a, 'src> PrettyPrec<'a> for Module<'src> {
+impl<'src, 'a> PrettyPrec<'a> for Module<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         allocator.intersperse(
             self.values
@@ -86,7 +78,7 @@ impl<'a, 'src> PrettyPrec<'a> for Module<'src> {
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for ValueDecl<'src> {
+impl<'src, 'a> PrettyPrec<'a> for ValueDecl<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         let mut result = allocator
             .text("def")
@@ -111,18 +103,18 @@ impl<'a, 'src> PrettyPrec<'a> for ValueDecl<'src> {
             .append(allocator.space())
             .append(":")
             .append(allocator.space())
-            .append(self.type_.pretty_prec(0, allocator));
+            .append(self.type_.pretty_prec(0, allocator))
+            .append(allocator.space());
 
         let value_pretty = self.value.pretty_prec(0, allocator);
-        result.append("=").append(
-            allocator
-                .hardline()
-                .append(value_pretty.indent(PRETTY_INDENT_SIZE)),
-        )
+        result
+            .append("=")
+            .append(allocator.hardline())
+            .append(value_pretty.indent(PRETTY_INDENT_SIZE))
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for Type<'src> {
+impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
     fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
             Type::Name { name } => allocator.text(name.to_owned()),
@@ -147,12 +139,11 @@ impl<'a, 'src> PrettyPrec<'a> for Type<'src> {
             Type::Int => allocator.text("Int"),
             Type::Bool => allocator.text("Bool"),
             Type::QVar(name) => allocator.text(name),
-            Type::TVar(tvar_key) => allocator.text(format!("{tvar_key:?}")),
         }
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for Binding<'src> {
+impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         allocator
             .text("(")
@@ -165,11 +156,11 @@ impl<'a, 'src> PrettyPrec<'a> for Binding<'src> {
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
+impl<'src, 'a> PrettyPrec<'a> for Atom<'src> {
     fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
-            Expr::Lit(value) => allocator.text(value.to_string()),
-            Expr::Var { name, type_args } => {
+            Atom::Lit(value) => allocator.text(value.to_string()),
+            Atom::Var { name, type_args } => {
                 let result = allocator.text(name.to_owned());
                 if !type_args.is_empty() {
                     result.append(
@@ -186,6 +177,14 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     result
                 }
             }
+        }
+    }
+}
+
+impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        match self {
+            Expr::Atom(atom) => atom.pretty_prec(0, allocator),
             Expr::Abs {
                 params,
                 return_type,
@@ -249,16 +248,16 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 }
 
                 result = result
+                    .append(allocator.space())
                     .append(":")
                     .append(allocator.space())
-                    .append(type_.pretty_prec(0, allocator));
+                    .append(type_.pretty_prec(0, allocator))
+                    .append(allocator.space());
 
                 let value_pretty = value.pretty_prec(0, allocator);
-                result = result.append("=").append(
-                    allocator
-                        .space()
-                        .append(allocator.hardline())
-                        .append(value_pretty.indent(PRETTY_INDENT_SIZE))
+                result = result.append("=").append(allocator.hardline()).append(
+                    value_pretty
+                        .indent(PRETTY_INDENT_SIZE)
                         .append(allocator.hardline())
                         .append(
                             allocator
@@ -291,3 +290,4 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
         }
     }
 }
+

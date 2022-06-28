@@ -79,11 +79,10 @@ impl<'src, 'a> PrettyPrec<'a> for ValueDecl<'src> {
             .text("def")
             .annotate(ColorSpec::new().set_bold(true).clone())
             .append(allocator.space())
-            .append(allocator.text(self.name.to_owned()))
-            .append(allocator.space());
+            .append(allocator.text(self.name.to_owned()));
 
         if !self.type_params.is_empty() {
-            result = result.append(
+            result = result.append(allocator.space()).append(
                 allocator
                     .intersperse(
                         self.type_params
@@ -111,20 +110,27 @@ impl<'src, 'a> PrettyPrec<'a> for ValueDecl<'src> {
 }
 
 impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
-    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
             Type::Name { name } => allocator.text(name.to_owned()),
-            Type::Func(param_types, return_type) => allocator
-                .intersperse(
-                    param_types
-                        .iter()
-                        .map(|param_type| param_type.clone().pretty_prec(0, allocator)),
-                    allocator.space().append("->").append(allocator.space()),
-                )
-                .append(allocator.space())
-                .append("->")
-                .append(allocator.space())
-                .append(return_type.pretty_prec(0, allocator)),
+            Type::Func(param_types, return_type) => {
+                let result = allocator
+                    .intersperse(
+                        param_types
+                            .iter()
+                            .map(|param_type| param_type.clone().pretty_prec(1, allocator)),
+                        allocator.space().append("->").append(allocator.space()),
+                    )
+                    .append(allocator.space())
+                    .append("->")
+                    .append(allocator.space())
+                    .append(return_type.pretty_prec(0, allocator));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
             Type::Int => allocator.text("Int"),
             Type::Bool => allocator.text("Bool"),
             Type::QVar(name) => allocator.text(name),
@@ -213,11 +219,10 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                     .text("let")
                     .annotate(ColorSpec::new().set_bold(true).clone())
                     .append(allocator.space())
-                    .append(allocator.text(name.to_owned()))
-                    .append(allocator.space());
+                    .append(allocator.text(name.to_owned()));
 
                 if !type_params.is_empty() {
-                    result = result.append(
+                    result = result.append(allocator.space()).append(
                         allocator
                             .intersperse(
                                 type_params
@@ -230,6 +235,7 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                 }
 
                 result = result
+                    .append(allocator.space())
                     .append(":")
                     .append(allocator.space())
                     .append(type_.pretty_prec(0, allocator))
