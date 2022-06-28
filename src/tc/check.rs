@@ -655,11 +655,11 @@ impl<'src> Typechecker<'src> {
             ) => {
                 let param_count = params.len();
                 let param_type_count = param_types.len();
-                let (remaining_params, remaining_param_types) = if param_count < param_type_count {
-                    (params.split_off(param_count), param_types.split_off(param_count))
-                } else {
-                    (params.split_off(param_type_count), param_types.split_off(param_type_count))
-                };
+                let split_index = param_count.min(param_type_count);
+                let (remaining_params, remaining_param_types) = (
+                    params.split_off(split_index),
+                    param_types.split_off(split_index),
+                );
                 let mut params_typed = Vec::new();
                 for (param, param_type) in params.iter().zip(param_types) {
                     let binding = match param {
@@ -683,16 +683,25 @@ impl<'src> Typechecker<'src> {
                     params_typed.push(binding);
                 }
 
-                self.new_scope_with_params(params_typed);
-                let (remaining_body, mut remaining_type) = match param_count.cmp(&param_type_count) {
-                    Ordering::Less => (body, Type::Func(remaining_param_types, box return_type.clone())),
+                self.new_scope_with_params(params_typed.clone());
+                let (remaining_body, mut remaining_return_type) = match param_count.cmp(&param_type_count) {
+                    Ordering::Less => (
+                        body,
+                        Type::Func(remaining_param_types, box return_type.clone()),
+                    ),
                     Ordering::Equal => (body, return_type.clone()),
-                    Ordering::Greater => (surface::Expr::Abs(remaining_params, box body), return_type.clone()),
+                    Ordering::Greater => (
+                        surface::Expr::Abs(remaining_params, box body),
+                        return_type.clone(),
+                    ),
                 };
-                let body_elab = self.check(remaining_body, &mut remaining_type)?;
-
+                let body_elab = self.check(remaining_body, &mut remaining_return_type)?;
                 self.env.pop_scope();
-                Ok(body_elab)
+                Ok(tc::Expr::Abs {
+                    params: params_typed,
+                    return_type: remaining_return_type,
+                    body: box body_elab,
+                })
             }
             (
                 surface::Expr::Let {
