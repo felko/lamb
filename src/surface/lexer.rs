@@ -48,6 +48,12 @@ pub enum TokenType {
     Let,
     #[token("in")]
     In,
+    #[token("if")]
+    If,
+    #[token("then")]
+    Then,
+    #[token("else")]
+    Else,
 
     // Primitive types
     #[token("Int")]
@@ -80,6 +86,9 @@ pub enum Token<'src> {
     Fun,
     Let,
     In,
+    If,
+    Then,
+    Else,
     Int,
     Bool,
     Identifier(&'src str),
@@ -114,6 +123,9 @@ impl<'src> Display for Token<'src> {
             Token::Fun => write!(f, "fun"),
             Token::Let => write!(f, "let"),
             Token::In => write!(f, "in"),
+            Token::If => write!(f, "if"),
+            Token::Then => write!(f, "then"),
+            Token::Else => write!(f, "else"),
             Token::Int => write!(f, "Int"),
             Token::Bool => write!(f, "Bool"),
             Token::Identifier(ident) => write!(f, "{ident}"),
@@ -184,6 +196,9 @@ impl<'src> Lexer<'src> {
             TokenType::Fun => Ok(Token::Fun),
             TokenType::Let => Ok(Token::Let),
             TokenType::In => Ok(Token::In),
+            TokenType::If => Ok(Token::If),
+            TokenType::Then => Ok(Token::Then),
+            TokenType::Else => Ok(Token::Else),
             TokenType::Int => Ok(Token::Int),
             TokenType::Bool => Ok(Token::Bool),
             TokenType::Identifier => Ok(Token::Identifier(self.logos.slice())),

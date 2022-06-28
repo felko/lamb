@@ -29,6 +29,11 @@ pub enum Expr<'src> {
         cont: Box<Expr<'src>>,
     },
     App(Box<Expr<'src>>, Vec<Expr<'src>>),
+    If {
+        cond: Box<Expr<'src>>,
+        then: Box<Expr<'src>>,
+        else_: Box<Expr<'src>>,
+    },
     Ann(Box<Expr<'src>>, Type<'src>),
 }
 
@@ -230,7 +235,8 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                 }
                 let body_pretty = body.pretty_prec(0, allocator);
                 result = result.append(allocator.space()).append("=").append(
-                    allocator.hardline()
+                    allocator
+                        .hardline()
                         .append(body_pretty.indent(PRETTY_INDENT_SIZE))
                         .append(allocator.hardline())
                         .append(
@@ -255,6 +261,35 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                         args.iter().map(|arg| arg.clone().pretty_prec(2, allocator)),
                         allocator.space(),
                     ));
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
+            Expr::If { cond, then, else_ } => {
+                let result = allocator
+                    .text("if")
+                    .annotate(ColorSpec::new().set_bold(true).clone())
+                    .append(allocator.space())
+                    .append(cond.pretty_prec(0, allocator))
+                    .append(allocator.space())
+                    .append(
+                        allocator
+                            .text("then")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.hardline())
+                    .append(then.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
+                    .append(allocator.hardline())
+                    .append(
+                        allocator
+                            .text("else")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.hardline())
+                    .append(else_.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE));
+
                 if prec > 0 {
                     result.parens()
                 } else {

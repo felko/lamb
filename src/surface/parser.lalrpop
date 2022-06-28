@@ -24,6 +24,9 @@ extern {
         "def" => Token::Def,
         "let" => Token::Let,
         "in" => Token::In,
+        "if" => Token::If,
+        "then" => Token::Then,
+        "else" => Token::Else,
         "Int" => Token::Int,
         "Bool" => Token::Bool,
         Identifier => Token::Identifier(<&'src str>),
@@ -92,6 +95,7 @@ Expr = Expr0;
 Expr0: Expr<'src> = {
     "fun" <params: (Binding)+> "=>" <body: Box<Expr0>> => Expr::Abs(params, body),
     "let" <name: Identifier> <type_params: TypeParamsOpt> <params: (Binding)*> <return_type: (Annotation)?> "=" <body: Box<Expr0>> "in" <cont: Box<Expr0>> => Expr::Let {name, type_params, params, return_type, body, cont },
+    "if" <cond: Box<Expr0>> "then" <then: Box<Expr0>> "else" <else_: Box<Expr0>> => Expr::If {cond, then, else_ },
     <Expr1>,
 }
 

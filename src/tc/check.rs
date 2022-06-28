@@ -220,6 +220,15 @@ impl<'src> Typechecker<'src> {
                 value: box self.generalize_expr(skolems, value),
                 cont: box self.generalize_expr(skolems, cont),
             },
+            tc::Expr::If {
+                box cond,
+                box then,
+                box else_,
+            } => tc::Expr::If {
+                cond: box self.generalize_expr(skolems, cond),
+                then: box self.generalize_expr(skolems, then),
+                else_: box self.generalize_expr(skolems, else_),
+            },
         }
     }
 
@@ -600,6 +609,24 @@ impl<'src> Typechecker<'src> {
                     cont_type,
                 ))
             }
+            surface::Expr::If {
+                box cond,
+                box then,
+                box else_,
+            } => {
+                let cond_elab = self.check(cond, &mut Type::Bool)?;
+                let (then_elab, mut then_type) = self.infer(then)?;
+                let (else_elab, mut else_type) = self.infer(else_)?;
+                self.unify(&mut then_type, &mut else_type)?;
+                Ok((
+                    tc::Expr::If {
+                        cond: box cond_elab,
+                        then: box then_elab,
+                        else_: box else_elab,
+                    },
+                    then_type,
+                ))
+            }
             surface::Expr::Ann(box expr, type_) => {
                 let mut expr_type =
                     self.surface_type_to_tc_type(&Vec::new(), &mut HashMap::new(), type_.clone())?;
@@ -684,17 +711,18 @@ impl<'src> Typechecker<'src> {
                 }
 
                 self.new_scope_with_params(params_typed.clone());
-                let (remaining_body, mut remaining_return_type) = match param_count.cmp(&param_type_count) {
-                    Ordering::Less => (
-                        body,
-                        Type::Func(remaining_param_types, box return_type.clone()),
-                    ),
-                    Ordering::Equal => (body, return_type.clone()),
-                    Ordering::Greater => (
-                        surface::Expr::Abs(remaining_params, box body),
-                        return_type.clone(),
-                    ),
-                };
+                let (remaining_body, mut remaining_return_type) =
+                    match param_count.cmp(&param_type_count) {
+                        Ordering::Less => (
+                            body,
+                            Type::Func(remaining_param_types, box return_type.clone()),
+                        ),
+                        Ordering::Equal => (body, return_type.clone()),
+                        Ordering::Greater => (
+                            surface::Expr::Abs(remaining_params, box body),
+                            return_type.clone(),
+                        ),
+                    };
                 let body_elab = self.check(remaining_body, &mut remaining_return_type)?;
                 self.env.pop_scope();
                 Ok(tc::Expr::Abs {
@@ -804,6 +832,23 @@ impl<'src> Typechecker<'src> {
                     type_: scheme.type_,
                     value: box value,
                     cont: box cont_elab,
+                })
+            }
+            (
+                surface::Expr::If {
+                    box cond,
+                    box then,
+                    box else_,
+                },
+                expected_type,
+            ) => {
+                let cond_elab = self.check(cond, &mut Type::Bool)?;
+                let then_elab = self.check(then, expected_type)?;
+                let else_elab = self.check(else_, expected_type)?;
+                Ok(tc::Expr::If {
+                    cond: box cond_elab,
+                    then: box then_elab,
+                    else_: box else_elab,
                 })
             }
             (surface::Expr::Ann(box expr, ann_type), expected_type) => {
@@ -988,6 +1033,15 @@ impl<'src> Typechecker<'src> {
                 type_: self.type_tc_to_core(type_),
                 value: box self.expr_tc_to_core(value),
                 cont: box self.expr_tc_to_core(cont),
+            },
+            tc::Expr::If {
+                box cond,
+                box then,
+                box else_,
+            } => core::Expr::If {
+                cond: box self.expr_tc_to_core(cond),
+                then: box self.expr_tc_to_core(then),
+                else_: box self.expr_tc_to_core(else_),
             },
             tc::Expr::App { box callee, args } => core::Expr::App {
                 callee: box self.expr_tc_to_core(callee),

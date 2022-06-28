@@ -56,6 +56,11 @@ pub enum Expr<'src> {
         value: Box<Expr<'src>>,
         cont: Box<Expr<'src>>,
     },
+    If {
+        cond: Box<Expr<'src>>,
+        then: Box<Expr<'src>>,
+        else_: Box<Expr<'src>>,
+    },
     App {
         callee: Box<Expr<'src>>,
         args: Vec<Expr<'src>>,
@@ -254,6 +259,35 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                         .append(allocator.hardline())
                         .append(cont.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
                 );
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
+            Expr::If { cond, then, else_ } => {
+                let result = allocator
+                    .text("if")
+                    .annotate(ColorSpec::new().set_bold(true).clone())
+                    .append(allocator.space())
+                    .append(cond.pretty_prec(0, allocator))
+                    .append(allocator.space())
+                    .append(
+                        allocator
+                            .text("then")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.hardline())
+                    .append(then.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
+                    .append(allocator.hardline())
+                    .append(
+                        allocator
+                            .text("else")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.hardline())
+                    .append(else_.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE));
+
                 if prec > 0 {
                     result.parens()
                 } else {
