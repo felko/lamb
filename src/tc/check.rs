@@ -160,6 +160,17 @@ impl<'src> Typechecker<'src> {
         }
     }
 
+    fn generalize_binding(
+        &mut self,
+        skolems: &mut SecondaryMap<TVarKey, String>,
+        binding: tc::Binding<'src>,
+    ) -> tc::Binding<'src> {
+        tc::Binding {
+            name: binding.name,
+            type_: self.generalize(skolems, binding.type_),
+        }
+    }
+
     fn generalize_expr(
         &mut self,
         skolems: &mut SecondaryMap<TVarKey, String>,
@@ -194,15 +205,7 @@ impl<'src> Typechecker<'src> {
                 params: params
                     .iter()
                     .cloned()
-                    .map(
-                        |tc::Binding {
-                             name,
-                             type_: param_type,
-                         }| tc::Binding {
-                            name,
-                            type_: self.generalize(skolems, param_type),
-                        },
-                    )
+                    .map(|param| self.generalize_binding(skolems, param))
                     .collect(),
                 return_type: self.generalize(skolems, return_type),
                 body: box self.generalize_expr(skolems, body),
@@ -210,14 +213,20 @@ impl<'src> Typechecker<'src> {
             tc::Expr::Let {
                 name,
                 type_params,
-                type_,
-                box value,
+                params,
+                return_type,
+                box body,
                 box cont,
             } => tc::Expr::Let {
                 name,
                 type_params,
-                type_: self.generalize(skolems, type_),
-                value: box self.generalize_expr(skolems, value),
+                params: params
+                    .iter()
+                    .cloned()
+                    .map(|param| self.generalize_binding(skolems, param))
+                    .collect(),
+                return_type: self.generalize(skolems, return_type),
+                body: box self.generalize_expr(skolems, body),
                 cont: box self.generalize_expr(skolems, cont),
             },
             tc::Expr::If {
@@ -452,7 +461,10 @@ impl<'src> Typechecker<'src> {
         expr: surface::Expr<'src>,
     ) -> Result<(tc::Expr<'src>, Type<'src>), TypeError<'src>> {
         match expr {
-            surface::Expr::Lit(literal) => Ok((tc::Expr::Lit(literal.clone()), Self::infer_literal(&literal))),
+            surface::Expr::Lit(literal) => Ok((
+                tc::Expr::Lit(literal.clone()),
+                Self::infer_literal(&literal),
+            )),
             surface::Expr::Var(name) => {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (instantiated, type_args) = self.instantiate(scheme.clone());
@@ -522,7 +534,7 @@ impl<'src> Typechecker<'src> {
                 box cont,
             } => {
                 // infer let-bound expression
-                let (value_elab, scheme) = {
+                let (type_params_gen, params_elab, body_type, body_elab) = {
                     self.level += 1;
                     let mut subst = HashMap::from_iter(
                         type_params.iter().map(|type_param| (*type_param, None)),
@@ -550,10 +562,8 @@ impl<'src> Typechecker<'src> {
                     body_type = self.generalize(&mut skolems, body_type);
                     params_elab = params_elab
                         .iter()
-                        .map(|tc::Binding { name, type_ }| tc::Binding {
-                            name,
-                            type_: self.generalize(&mut skolems, type_.clone()),
-                        })
+                        .cloned()
+                        .map(|param| self.generalize_binding(&mut skolems, param))
                         .collect();
                     body_elab = self.generalize_expr(&mut skolems, body_elab);
 
@@ -564,53 +574,41 @@ impl<'src> Typechecker<'src> {
                     }
 
                     if params_elab.is_empty() {
-                        match body_type {
-                            tc::Type::Func(_, _) => Ok((
-                                body_elab,
-                                Scheme {
-                                    variables: type_params,
-                                    type_: body_type,
-                                },
-                            )),
-                            _ if type_params.is_empty() => Ok((
-                                body_elab,
-                                Scheme {
-                                    variables: type_params,
-                                    type_: body_type,
-                                },
-                            )),
-                            body_type => Err(TypeError::AmbiguousType(type_params, body_type)),
+                        match body_type.clone() {
+                            tc::Type::Func(_, _) => {}
+                            _ if type_params.is_empty() => {}
+                            body_type => {
+                                Err(TypeError::AmbiguousType(type_params.clone(), body_type))?
+                            }
                         }
-                    } else {
-                        Ok((
-                            tc::Expr::Abs {
-                                params: params_elab.clone(),
-                                return_type: body_type.clone(),
-                                body: box body_elab,
-                            },
-                            Scheme {
-                                variables: type_params,
-                                type_: Type::Func(
-                                    params_elab
-                                        .iter()
-                                        .map(|param| param.type_.clone())
-                                        .collect(),
-                                    box body_type,
-                                ),
-                            },
-                        ))
                     }
+                    Ok((type_params, params_elab, body_type, body_elab))
                 }?;
                 self.env.new_scope();
-                self.env.insert(name, scheme.clone());
+                let scheme = Scheme {
+                    variables: type_params_gen.clone(),
+                    type_: if params.is_empty() {
+                        body_type.clone()
+                    } else {
+                        Type::Func(
+                            params_elab
+                                .iter()
+                                .map(|param| param.type_.clone())
+                                .collect(),
+                            box body_type.clone(),
+                        )
+                    },
+                };
+                self.env.insert(name, scheme);
                 let (cont_elab, cont_type) = self.infer(cont)?;
                 self.env.pop_scope();
                 Ok((
                     tc::Expr::Let {
                         name,
-                        type_params: scheme.variables,
-                        type_: scheme.type_,
-                        value: box value_elab,
+                        type_params: type_params_gen,
+                        params: params_elab,
+                        return_type: body_type,
+                        body: box body_elab,
                         cont: box cont_elab,
                     },
                     cont_type,
@@ -650,8 +648,12 @@ impl<'src> Typechecker<'src> {
     ) -> Result<tc::Expr<'src>, TypeError<'src>> {
         self.find(type_);
         match (expr, type_) {
-            (surface::Expr::Lit(literal @ surface::Literal::Int(_)), Type::Int) => Ok(tc::Expr::Lit(literal)),
-            (surface::Expr::Lit(literal @ surface::Literal::Bool(_)), Type::Bool) => Ok(tc::Expr::Lit(literal)),
+            (surface::Expr::Lit(literal @ surface::Literal::Int(_)), Type::Int) => {
+                Ok(tc::Expr::Lit(literal))
+            }
+            (surface::Expr::Lit(literal @ surface::Literal::Bool(_)), Type::Bool) => {
+                Ok(tc::Expr::Lit(literal))
+            }
             (surface::Expr::Var(name), expected_type) => {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (mut var_type, type_args) = self.instantiate(scheme.clone());
@@ -751,18 +753,22 @@ impl<'src> Typechecker<'src> {
                 expected_type,
             ) => {
                 // infer let-bound expression
-                let (value, scheme) = {
+                let (type_params_gen, params_elab, body_type, body_elab) = {
                     self.level += 1;
                     let mut subst = HashMap::from_iter(
                         type_params.iter().map(|type_param| (*type_param, None)),
                     );
-                    let mut params_elab = self.elab_params(&type_params, &mut subst, params)?;
+                    let mut params_elab =
+                        self.elab_params(&type_params, &mut subst, params.clone())?;
                     self.new_scope_with_params(params_elab.clone());
                     let mut body_elab;
                     let mut body_type;
                     if let Some(return_type) = return_type {
-                        body_type =
-                            self.surface_type_to_tc_type(&type_params, &mut subst, return_type)?;
+                        body_type = self.surface_type_to_tc_type(
+                            &type_params,
+                            &mut subst,
+                            return_type.clone(),
+                        )?;
                         body_elab = self.check(body, &mut body_type)?;
                     } else {
                         (body_elab, body_type) = self.infer(body)?;
@@ -775,10 +781,8 @@ impl<'src> Typechecker<'src> {
                     body_type = self.generalize(&mut skolems, body_type);
                     params_elab = params_elab
                         .iter()
-                        .map(|tc::Binding { name, type_ }| tc::Binding {
-                            name,
-                            type_: self.generalize(&mut skolems, type_.clone()),
-                        })
+                        .cloned()
+                        .map(|param| self.generalize_binding(&mut skolems, param))
                         .collect();
                     body_elab = self.generalize_expr(&mut skolems, body_elab);
 
@@ -789,56 +793,40 @@ impl<'src> Typechecker<'src> {
                     }
 
                     if params_elab.is_empty() {
-                        match body_type {
-                            tc::Type::Func(_, _) => Ok((
-                                body_elab,
-                                Scheme {
-                                    variables: type_params,
-                                    type_: body_type,
-                                },
-                            )),
-
-                            _ if type_params.is_empty() => Ok((
-                                body_elab,
-                                Scheme {
-                                    variables: type_params,
-                                    type_: body_type,
-                                },
-                            )),
+                        match body_type.clone() {
+                            tc::Type::Func(_, _) => {}
+                            _ if type_params.is_empty() => {}
                             body_type => {
-                                Err(TypeError::AmbiguousType(type_params.clone(), body_type))
+                                Err(TypeError::AmbiguousType(type_params.clone(), body_type))?
                             }
                         }
-                    } else {
-                        Ok((
-                            tc::Expr::Abs {
-                                params: params_elab.clone(),
-                                return_type: body_type.clone(),
-                                body: box body_elab,
-                            },
-                            Scheme {
-                                variables: type_params,
-                                type_: Type::Func(
-                                    params_elab
-                                        .iter()
-                                        .map(|param| param.type_.clone())
-                                        .collect(),
-                                    box body_type,
-                                ),
-                            },
-                        ))
                     }
+                    Ok((type_params, params_elab, body_type, body_elab))
                 }?;
-
                 self.env.new_scope();
-                self.env.insert(name, scheme.clone());
+                let scheme = Scheme {
+                    variables: type_params_gen.clone(),
+                    type_: if params.is_empty() {
+                        body_type.clone()
+                    } else {
+                        Type::Func(
+                            params_elab
+                                .iter()
+                                .map(|param| param.type_.clone())
+                                .collect(),
+                            box body_type.clone(),
+                        )
+                    },
+                };
+                self.env.insert(name, scheme);
                 let cont_elab = self.check(cont, expected_type)?;
                 self.env.pop_scope();
                 Ok(tc::Expr::Let {
                     name,
-                    type_params: scheme.variables,
-                    type_: scheme.type_,
-                    value: box value,
+                    type_params: type_params_gen,
+                    params: params_elab,
+                    return_type: body_type,
+                    body: box body_elab,
                     cont: box cont_elab,
                 })
             }
@@ -878,7 +866,7 @@ impl<'src> Typechecker<'src> {
         &mut self,
         module: surface::Module<'src>,
     ) -> Result<tc::Module<'src>, TypeError<'src>> {
-        let mut values = HashMap::new();
+        let mut functions = HashMap::new();
         for decl in module.declarations {
             match decl {
                 surface::Decl::Func {
@@ -893,23 +881,23 @@ impl<'src> Typechecker<'src> {
                         let mut subst = HashMap::new();
                         let mut params_elab = self.elab_params(&type_params, &mut subst, params)?;
                         self.new_scope_with_params(params_elab.clone());
-                        let (mut body_elab, mut body_type) = if let Some(return_type) = return_type
-                        {
-                            let mut body_type = self.surface_type_to_tc_type(
-                                &type_params,
-                                &mut subst,
-                                return_type,
-                            )?;
-                            let body_elab = self.check(body, &mut body_type)?;
-                            Ok((body_elab, body_type))
-                        } else {
-                            self.infer(body)
-                        }?;
+                        let (mut body_elab, mut return_type) =
+                            if let Some(return_type) = return_type {
+                                let mut return_type = self.surface_type_to_tc_type(
+                                    &type_params,
+                                    &mut subst,
+                                    return_type,
+                                )?;
+                                let body_elab = self.check(body, &mut return_type)?;
+                                Ok((body_elab, return_type))
+                            } else {
+                                self.infer(body)
+                            }?;
                         self.env.pop_scope();
                         self.level -= 1;
 
                         let mut skolems = SecondaryMap::new();
-                        body_type = self.generalize(&mut skolems, body_type);
+                        return_type = self.generalize(&mut skolems, return_type);
                         params_elab = params_elab
                             .iter()
                             .map(|tc::Binding { name, type_ }| tc::Binding {
@@ -925,46 +913,31 @@ impl<'src> Typechecker<'src> {
                             type_params.push(type_param);
                         }
 
-                        let (type_, value) = if params_elab.is_empty() {
-                            match body_type {
-                                tc::Type::Func(_, _) => Ok((body_type, body_elab)),
-                                _ if type_params.is_empty() => Ok((body_type, body_elab)),
-                                body_type => {
-                                    Err(TypeError::AmbiguousType(type_params.clone(), body_type))
+                        if params_elab.is_empty() {
+                            match return_type.clone() {
+                                tc::Type::Func(_, _) => {}
+                                _ if type_params.is_empty() => {}
+                                return_type => {
+                                    Err(TypeError::AmbiguousType(type_params.clone(), return_type))?
                                 }
                             }
-                        } else {
-                            Ok((
-                                Type::Func(
-                                    params_elab
-                                        .iter()
-                                        .map(|param| param.type_.clone())
-                                        .collect(),
-                                    box body_type.clone(),
-                                ),
-                                tc::Expr::Abs {
-                                    params: params_elab,
-                                    return_type: body_type,
-                                    body: box body_elab,
-                                },
-                            ))
-                        }?;
-
-                        Ok(tc::ValueDecl {
+                        }
+                        Ok(tc::FunDecl {
                             name,
                             type_params,
-                            type_,
-                            value,
+                            params: params_elab,
+                            return_type,
+                            body: body_elab,
                         })
                     }?;
 
-                    if let hash_map::Entry::Vacant(e) = values.entry(name) {
+                    if let hash_map::Entry::Vacant(e) = functions.entry(name) {
                         e.insert(decl_elab.clone());
                         self.env.insert(
                             name,
                             Scheme {
                                 variables: decl_elab.type_params,
-                                type_: decl_elab.type_,
+                                type_: decl_elab.return_type,
                             },
                         );
                     } else {
@@ -974,7 +947,7 @@ impl<'src> Typechecker<'src> {
             }
             self.reset();
         }
-        Ok(tc::Module { values })
+        Ok(tc::Module { functions })
     }
 
     fn type_tc_to_core(&self, type_: Type<'src>) -> core::Type<'src> {
@@ -1032,14 +1005,20 @@ impl<'src> Typechecker<'src> {
             tc::Expr::Let {
                 name,
                 type_params,
-                type_,
-                box value,
+                params,
+                return_type,
+                box body,
                 box cont,
             } => core::Expr::Let {
                 name,
                 type_params,
-                type_: self.type_tc_to_core(type_),
-                value: box self.expr_tc_to_core(value),
+                params: params
+                    .iter()
+                    .cloned()
+                    .map(|param| self.binding_tc_to_core(param))
+                    .collect(),
+                return_type: self.type_tc_to_core(return_type),
+                body: box self.expr_tc_to_core(body),
                 cont: box self.expr_tc_to_core(cont),
             },
             tc::Expr::If {
@@ -1061,21 +1040,29 @@ impl<'src> Typechecker<'src> {
         }
     }
 
-    fn decl_tc_to_core(&self, decl: tc::ValueDecl<'src>) -> core::ValueDecl<'src> {
-        core::ValueDecl {
+    fn decl_tc_to_core(&self, decl: tc::FunDecl<'src>) -> core::FunDecl<'src> {
+        core::FunDecl {
             name: decl.name,
             type_params: decl.type_params,
-            type_: self.type_tc_to_core(decl.type_),
-            value: self.expr_tc_to_core(decl.value),
+            params: decl
+                .params
+                .iter()
+                .map(|param| self.binding_tc_to_core(param.clone()))
+                .collect(),
+            return_type: self.type_tc_to_core(decl.return_type),
+            body: self.expr_tc_to_core(decl.body),
         }
     }
 
     fn module_tc_to_core(&self, module: tc::Module<'src>) -> core::Module<'src> {
-        let mut values = HashMap::new();
-        for (name, decl) in module.values {
-            values.insert(name, self.decl_tc_to_core(decl));
+        core::Module {
+            functions: HashMap::from_iter(
+                module
+                    .functions
+                    .iter()
+                    .map(|(name, decl)| (*name, self.decl_tc_to_core(decl.clone()))),
+            ),
         }
-        core::Module { values }
     }
 
     pub fn run(

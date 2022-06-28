@@ -43,10 +43,11 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
             uncurry_expr(rhs);
         }
         Let {
-            type_, value, cont, ..
+            params, return_type, body, cont, ..
         } => {
-            uncurry_type(type_);
-            uncurry_expr(value);
+            params.iter_mut().for_each(uncurry_binding);
+            uncurry_type(return_type);
+            uncurry_expr(body);
             uncurry_expr(cont);
         }
         If { cond, then, else_ } => {
@@ -73,11 +74,12 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
     }
 }
 
-fn uncurry_decl(decl: &mut ValueDecl<'_>) {
-    uncurry_type(&mut decl.type_);
-    uncurry_expr(&mut decl.value);
+fn uncurry_decl(decl: &mut FunDecl<'_>) {
+    decl.params.iter_mut().for_each(uncurry_binding);
+    uncurry_type(&mut decl.return_type);
+    uncurry_expr(&mut decl.body);
 }
 
 pub fn uncurry_module(module: &mut Module) {
-    module.values.values_mut().for_each(uncurry_decl);
+    module.functions.values_mut().for_each(uncurry_decl);
 }

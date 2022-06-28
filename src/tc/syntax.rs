@@ -2,8 +2,8 @@ use std::{collections::HashMap, fmt::*};
 
 use slotmap;
 
-use crate::pretty::*;
 pub use crate::common::Literal;
+use crate::pretty::*;
 
 slotmap::new_key_type! {
     pub struct TVarKey;
@@ -11,15 +11,16 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone)]
 pub struct Module<'src> {
-    pub values: HashMap<&'src str, ValueDecl<'src>>,
+    pub functions: HashMap<&'src str, FunDecl<'src>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ValueDecl<'src> {
+pub struct FunDecl<'src> {
     pub name: &'src str,
     pub type_params: Vec<String>,
-    pub type_: Type<'src>,
-    pub value: Expr<'src>,
+    pub params: Vec<Binding<'src>>,
+    pub return_type: Type<'src>,
+    pub body: Expr<'src>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,8 +67,9 @@ pub enum Expr<'src> {
     Let {
         name: &'src str,
         type_params: Vec<String>,
-        type_: Type<'src>,
-        value: Box<Expr<'src>>,
+        params: Vec<Binding<'src>>,
+        return_type: Type<'src>,
+        body: Box<Expr<'src>>,
         cont: Box<Expr<'src>>,
     },
     If {
@@ -84,7 +86,7 @@ pub enum Expr<'src> {
 impl<'a, 'src> PrettyPrec<'a> for Module<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         allocator.intersperse(
-            self.values
+            self.functions
                 .iter()
                 .map(|(_, decl)| decl.clone().pretty_prec(0, allocator)),
             allocator.hardline().append(allocator.hardline()),
@@ -92,7 +94,7 @@ impl<'a, 'src> PrettyPrec<'a> for Module<'src> {
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for ValueDecl<'src> {
+impl<'src, 'a> PrettyPrec<'a> for FunDecl<'src> {
     fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         let mut result = allocator
             .text("def")
@@ -114,16 +116,21 @@ impl<'a, 'src> PrettyPrec<'a> for ValueDecl<'src> {
         }
 
         result = result
+            .append(allocator.concat(self.params.iter().map(|param| {
+                allocator
+                    .space()
+                    .append(param.clone().pretty_prec(0, allocator))
+            })))
             .append(allocator.space())
             .append(":")
             .append(allocator.space())
-            .append(self.type_.pretty_prec(0, allocator));
+            .append(self.return_type.pretty_prec(0, allocator));
 
-        let value_pretty = self.value.pretty_prec(0, allocator);
-        result.append("=").append(
+        let body_pretty = self.body.pretty_prec(0, allocator);
+        result.append(allocator.space()).append("=").append(
             allocator
                 .hardline()
-                .append(value_pretty.indent(PRETTY_INDENT_SIZE)),
+                .append(body_pretty.indent(PRETTY_INDENT_SIZE)),
         )
     }
 }
@@ -231,8 +238,9 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
             Expr::Let {
                 name,
                 type_params,
-                type_,
-                value,
+                params,
+                return_type,
+                body,
                 cont,
             } => {
                 let mut result = allocator
@@ -251,29 +259,27 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                                 allocator.text(",").append(allocator.space()),
                             )
                             .angles(),
-                    )
+                    );
                 }
 
                 result = result
+                    .append(allocator.concat(params.iter().map(|param| {
+                        allocator
+                            .space()
+                            .append(param.clone().pretty_prec(0, allocator))
+                    })))
+                    .append(allocator.space())
                     .append(":")
                     .append(allocator.space())
-                    .append(type_.pretty_prec(0, allocator));
+                    .append(return_type.pretty_prec(0, allocator));
 
-                let value_pretty = value.pretty_prec(0, allocator);
-                result = result.append("=").append(
+                let body_pretty = body.pretty_prec(0, allocator);
+                result = result.append(allocator.space()).append("=").append(
                     allocator
-                        .space()
-                        .append(allocator.hardline())
-                        .append(value_pretty.indent(PRETTY_INDENT_SIZE))
-                        .append(allocator.hardline())
-                        .append(
-                            allocator
-                                .text("in")
-                                .annotate(ColorSpec::new().set_bold(true).clone()),
-                        )
-                        .append(allocator.hardline())
-                        .append(cont.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
+                        .hardline()
+                        .append(body_pretty.indent(PRETTY_INDENT_SIZE)),
                 );
+
                 if prec > 0 {
                     result.parens()
                 } else {
