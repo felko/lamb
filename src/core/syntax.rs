@@ -34,7 +34,7 @@ pub struct Scheme<'src> {
 
 #[derive(Debug, Clone)]
 pub struct Binding<'src> {
-    pub name: &'src str,
+    pub name: String,
     pub type_: Type<'src>,
 }
 
