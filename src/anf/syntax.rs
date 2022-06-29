@@ -97,7 +97,7 @@ impl<'src, 'a> PrettyPrec<'a> for FunDecl<'src> {
             .append(allocator.text(self.name.to_owned()));
 
         if !self.type_params.is_empty() {
-            result = result.append(allocator.space()).append(
+            result = result.append(
                 allocator
                     .intersperse(
                         self.type_params
@@ -110,11 +110,16 @@ impl<'src, 'a> PrettyPrec<'a> for FunDecl<'src> {
         }
 
         result = result
-            .append(allocator.concat(self.params.iter().map(|param| {
+            .append(
                 allocator
-                    .space()
-                    .append(param.clone().pretty_prec(0, allocator))
-            })))
+                    .intersperse(
+                        self.params
+                            .iter()
+                            .map(|param| param.clone().pretty_prec(0, allocator)),
+                        ", ",
+                    )
+                    .parens(),
+            )
             .append(allocator.space())
             .append(":")
             .append(allocator.space())
@@ -178,14 +183,13 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .annotate(ColorSpec::new().set_bold(true).clone())
                 .append(allocator.space())
                 .append(allocator.text(name))
-                .append(param.pretty_prec(0, allocator))
+                .append(param.pretty_prec(1, allocator))
                 .append(allocator.space())
                 .append("=")
                 .append(
                     allocator
                         .hardline()
                         .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
-                        .append(";"),
                 )
                 .append(allocator.hardline())
                 .append(cont.pretty_prec(0, allocator)),
@@ -204,7 +208,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .append(allocator.text(name));
 
                 if !type_params.is_empty() {
-                    result = result.append(allocator.space()).append(
+                    result = result.append(
                         allocator
                             .intersperse(
                                 type_params
@@ -217,11 +221,16 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 }
 
                 result
-                    .append(allocator.concat(params.iter().map(|param| {
+                    .append(
                         allocator
-                            .space()
-                            .append(param.clone().pretty_prec(0, allocator))
-                    })))
+                            .intersperse(
+                                params
+                                    .iter()
+                                    .map(|param| param.clone().pretty_prec(0, allocator)),
+                                ", ",
+                            )
+                            .parens(),
+                    )
                     .append(allocator.space())
                     .append(":")
                     .append(allocator.space())
@@ -232,7 +241,6 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                         allocator
                             .hardline()
                             .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
-                            .append(";"),
                     )
                     .append(allocator.hardline())
                     .append(cont.pretty_prec(0, allocator))
@@ -255,7 +263,6 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append("+")
                 .append(allocator.space())
                 .append(rhs.pretty_prec(0, allocator))
-                .append(";")
                 .append(allocator.hardline())
                 .append(cont.pretty_prec(0, allocator)),
             Expr::LetVal {
@@ -275,7 +282,6 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append("=")
                 .append(allocator.space())
                 .append(value.pretty_prec(0, allocator))
-                .append(";")
                 .append(allocator.hardline())
                 .append(cont.pretty_prec(0, allocator)),
             Expr::LetApp {
@@ -317,7 +323,6 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                             )
                             .parens(),
                     )
-                    .append(";")
                     .append(allocator.hardline())
                     .append(cont.pretty_prec(0, allocator))
             }

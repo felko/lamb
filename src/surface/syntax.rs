@@ -1,5 +1,5 @@
-use crate::pretty::*;
 pub use crate::common::Literal;
+use crate::pretty::*;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type<'src> {
@@ -147,15 +147,22 @@ impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
 }
 
 impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
-    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
-            Binding::Typed(name, type_) => allocator
-                .text(name.to_owned())
-                .append(allocator.space())
-                .append(":")
-                .append(allocator.space())
-                .append(type_.pretty_prec(0, allocator))
-                .parens(),
+            Binding::Typed(name, type_) => {
+                let result = allocator
+                    .text(name.to_owned())
+                    .append(allocator.space())
+                    .append(":")
+                    .append(allocator.space())
+                    .append(type_.pretty_prec(0, allocator))
+                    .parens();
+                if prec > 0 {
+                    result.parens()
+                } else {
+                    result
+                }
+            }
             Binding::Inferred(name) => allocator.text(name.to_owned()),
         }
     }
@@ -175,7 +182,7 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                         .append(allocator.intersperse(
                             params
                                 .iter()
-                                .map(|param| param.clone().pretty_prec(0, allocator)),
+                                .map(|param| param.clone().pretty_prec(1, allocator)),
                             allocator.space(),
                         ))
                         .append(allocator.space())
@@ -224,7 +231,7 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                 result = result.append(allocator.concat(params.iter().map(|param| {
                     allocator
                         .space()
-                        .append(param.clone().pretty_prec(0, allocator))
+                        .append(param.clone().pretty_prec(1, allocator))
                 })));
 
                 if let Some(return_type) = return_type {

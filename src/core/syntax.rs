@@ -153,15 +153,18 @@ impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
 }
 
 impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
-    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
-        allocator
-            .text("(")
-            .append(self.name.to_owned())
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        let result = allocator
+            .text(self.name.to_owned())
             .append(allocator.space())
             .append(":")
             .append(allocator.space())
-            .append(self.type_.pretty_prec(0, allocator))
-            .append(")")
+            .append(self.type_.pretty_prec(0, allocator));
+        if prec > 0 {
+            result.parens()
+        } else {
+            result
+        }
     }
 }
 
