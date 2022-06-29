@@ -50,8 +50,9 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
             uncurry_expr(body);
             uncurry_expr(cont);
         }
-        If { cond, then, else_ } => {
+        If { cond, return_type, then, else_ } => {
             uncurry_expr(cond);
+            uncurry_type(return_type);
             uncurry_expr(then);
             uncurry_expr(else_);
         }

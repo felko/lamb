@@ -231,10 +231,12 @@ impl<'src> Typechecker<'src> {
             },
             tc::Expr::If {
                 box cond,
+                return_type,
                 box then,
                 box else_,
             } => tc::Expr::If {
                 cond: box self.generalize_expr(skolems, cond),
+                return_type: self.generalize(skolems, return_type),
                 then: box self.generalize_expr(skolems, then),
                 else_: box self.generalize_expr(skolems, else_),
             },
@@ -622,10 +624,13 @@ impl<'src> Typechecker<'src> {
                 let cond_elab = self.check(cond, &mut Type::Bool)?;
                 let (then_elab, mut then_type) = self.infer(then)?;
                 let (else_elab, mut else_type) = self.infer(else_)?;
-                self.unify(&mut then_type, &mut else_type)?;
+                let mut return_type = Type::TVar(self.fresh_tvar());
+                self.unify(&mut then_type, &mut return_type)?;
+                self.unify(&mut else_type, &mut return_type)?;
                 Ok((
                     tc::Expr::If {
                         cond: box cond_elab,
+                        return_type,
                         then: box then_elab,
                         else_: box else_elab,
                     },
@@ -843,6 +848,7 @@ impl<'src> Typechecker<'src> {
                 let else_elab = self.check(else_, expected_type)?;
                 Ok(tc::Expr::If {
                     cond: box cond_elab,
+                    return_type: *expected_type,
                     then: box then_elab,
                     else_: box else_elab,
                 })
@@ -1023,10 +1029,12 @@ impl<'src> Typechecker<'src> {
             },
             tc::Expr::If {
                 box cond,
+                return_type,
                 box then,
                 box else_,
             } => core::Expr::If {
                 cond: box self.expr_tc_to_core(cond),
+                return_type: self.type_tc_to_core(return_type),
                 then: box self.expr_tc_to_core(then),
                 else_: box self.expr_tc_to_core(else_),
             },

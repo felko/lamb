@@ -61,6 +61,7 @@ pub enum Expr<'src> {
     },
     If {
         cond: Box<Expr<'src>>,
+        return_type: Type<'src>,
         then: Box<Expr<'src>>,
         else_: Box<Expr<'src>>,
     },
@@ -280,12 +281,25 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                     result
                 }
             }
-            Expr::If { cond, then, else_ } => {
+            Expr::If {
+                cond,
+                return_type,
+                then,
+                else_,
+            } => {
                 let result = allocator
                     .text("if")
                     .annotate(ColorSpec::new().set_bold(true).clone())
                     .append(allocator.space())
                     .append(cond.pretty_prec(0, allocator))
+                    .append(allocator.space())
+                    .append(
+                        allocator
+                            .text("returns")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.space())
+                    .append(return_type.pretty_prec(0, allocator))
                     .append(allocator.space())
                     .append(
                         allocator

@@ -74,6 +74,7 @@ pub enum Expr<'src> {
     },
     If {
         cond: Box<Expr<'src>>,
+        return_type: Type<'src>,
         then: Box<Expr<'src>>,
         else_: Box<Expr<'src>>,
     },
@@ -271,14 +272,22 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .append(allocator.space())
                     .append(":")
                     .append(allocator.space())
-                    .append(return_type.pretty_prec(0, allocator));
-
-                let body_pretty = body.pretty_prec(0, allocator);
-                result = result.append(allocator.space()).append("=").append(
-                    allocator
-                        .hardline()
-                        .append(body_pretty.indent(PRETTY_INDENT_SIZE)),
-                );
+                    .append(return_type.pretty_prec(0, allocator))
+                    .append(allocator.space())
+                    .append("=")
+                    .append(
+                        allocator
+                            .hardline()
+                            .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
+                    )
+                    .append(allocator.hardline())
+                    .append(
+                        allocator
+                            .text("in")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.hardline())
+                    .append(cont.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE));
 
                 if prec > 0 {
                     result.parens()
@@ -286,12 +295,25 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     result
                 }
             }
-            Expr::If { cond, then, else_ } => {
+            Expr::If {
+                cond,
+                return_type,
+                then,
+                else_,
+            } => {
                 let result = allocator
                     .text("if")
                     .annotate(ColorSpec::new().set_bold(true).clone())
                     .append(allocator.space())
                     .append(cond.pretty_prec(0, allocator))
+                    .append(allocator.space())
+                    .append(
+                        allocator
+                            .text("returns")
+                            .annotate(ColorSpec::new().set_bold(true).clone()),
+                    )
+                    .append(allocator.space())
+                    .append(return_type.pretty_prec(0, allocator))
                     .append(allocator.space())
                     .append(
                         allocator
