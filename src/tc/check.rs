@@ -630,11 +630,11 @@ impl<'src> Typechecker<'src> {
                 Ok((
                     tc::Expr::If {
                         cond: box cond_elab,
-                        return_type,
+                        return_type: return_type.clone(),
                         then: box then_elab,
                         else_: box else_elab,
                     },
-                    then_type,
+                    return_type,
                 ))
             }
             surface::Expr::Ann(box expr, type_) => {
@@ -848,7 +848,7 @@ impl<'src> Typechecker<'src> {
                 let else_elab = self.check(else_, expected_type)?;
                 Ok(tc::Expr::If {
                     cond: box cond_elab,
-                    return_type: *expected_type,
+                    return_type: expected_type.clone(),
                     then: box then_elab,
                     else_: box else_elab,
                 })
@@ -943,7 +943,10 @@ impl<'src> Typechecker<'src> {
                             name,
                             Scheme {
                                 variables: decl_elab.type_params,
-                                type_: decl_elab.return_type,
+                                type_: Type::Func(
+                                    decl_elab.params.iter().map(|param| param.type_.clone()).collect(),
+                                    box decl_elab.return_type,
+                                ),
                             },
                         );
                     } else {
@@ -978,7 +981,7 @@ impl<'src> Typechecker<'src> {
 
     fn binding_tc_to_core(&self, binding: tc::Binding<'src>) -> core::Binding<'src> {
         core::Binding {
-            name: binding.name,
+            name: binding.name.to_owned(),
             type_: self.type_tc_to_core(binding.type_),
         }
     }
