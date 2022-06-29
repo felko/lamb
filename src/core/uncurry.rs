@@ -43,14 +43,40 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
             uncurry_expr(rhs);
         }
         Let {
-            params, return_type, body, cont, ..
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            cont,
         } => {
             params.iter_mut().for_each(uncurry_binding);
             uncurry_type(return_type);
             uncurry_expr(body);
             uncurry_expr(cont);
+            if let Expr::Abs {
+                params: body_params,
+                return_type: body_return_type,
+                body: body_body,
+            } = *body.clone()
+            {
+                params.extend(body_params);
+                *expr = Expr::Let {
+                    name,
+                    type_params: type_params.to_vec(),
+                    params: params.to_vec(),
+                    return_type: body_return_type,
+                    body: body_body,
+                    cont: cont.clone(),
+                };
+            }
         }
-        If { cond, return_type, then, else_ } => {
+        If {
+            cond,
+            return_type,
+            then,
+            else_,
+        } => {
             uncurry_expr(cond);
             uncurry_type(return_type);
             uncurry_expr(then);
