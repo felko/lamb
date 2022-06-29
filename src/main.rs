@@ -11,14 +11,16 @@ use std::{fs::File, io::Read};
 use bumpalo::Bump;
 use clap::Parser;
 
-mod pipeline;
+mod anf;
 mod common;
 mod core;
 mod env;
+mod pipeline;
 mod pretty;
 mod surface;
 mod tc;
 
+use crate::anf::anf_convert;
 use crate::core::uncurry;
 use crate::pipeline::*;
 use crate::surface::parse;
@@ -45,13 +47,26 @@ fn main() {
     let source = source_storage.alloc(contents);
 
     let pipeline = PipelineBuilder::new()
-        .then(LogPrettyPass::new("parsing", true, FailliblePass::new(parse)))
+        .then(LogPrettyPass::new(
+            "parsing",
+            true,
+            FailliblePass::new(parse),
+        ))
         .then(LogPrettyPass::new(
             "typechecking",
-            true,
+            false,
             FailliblePass::new(typecheck),
         ))
-        .then(LogPrettyPass::new("uncurrying", true, InplacePass::new(uncurry)))
+        .then(LogPrettyPass::new(
+            "uncurrying",
+            false,
+            InplacePass::new(uncurry),
+        ))
+        .then(LogPrettyPass::new(
+            "anf",
+            true,
+            SimplePass::new(anf_convert),
+        ))
         .build();
 
     pipeline.run(source);
