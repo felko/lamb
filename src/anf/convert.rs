@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_variables)]
-
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -136,7 +134,7 @@ impl ANFConverter {
                         type_params,
                         params,
                         return_type,
-                        body: box self.convert_expr(cont.clone(), box move |return_value| {
+                        body: box self.convert_expr(body, box move |return_value| {
                             anf::Expr::Halt {
                                 value: return_value,
                             }
