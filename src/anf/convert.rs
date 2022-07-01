@@ -114,6 +114,15 @@ impl ANFConverter {
                             value: anf::Value::Lit(literal),
                             cont: box self.convert_expr(cont, expr_cont),
                         },
+                        core::Expr::Tuple(elements) => {
+                            self.convert_many(&elements, box move |elements_val| {
+                                anf::Expr::LetTuple {
+                                    name: name.to_owned(),
+                                    elements: elements_val,
+                                    cont: box self.convert_expr(cont, expr_cont),
+                                }
+                            })
+                        }
                         _ => self.convert_expr(body, box move |body_value| anf::Expr::LetVal {
                             name: name.to_owned(),
                             type_: return_type,
@@ -188,6 +197,29 @@ impl ANFConverter {
                     _ => panic!("anf::convert_expr: callee should be a variable"),
                 })
             }
+            core::Expr::Tuple(elements) => self.convert_many(&elements, box move |elements_val| {
+                let r = self.fresh("t");
+                anf::Expr::LetTuple {
+                    name: r.clone(),
+                    elements: elements_val,
+                    cont: box expr_cont(anf::Value::Var {
+                        name: r,
+                        type_args: Vec::new(),
+                    }),
+                }
+            }),
+            core::Expr::Proj(box tuple, index) => self.convert_expr(tuple, box move |tuple_val| {
+                let r = self.fresh("t");
+                anf::Expr::LetProj {
+                    name: r.clone(),
+                    tuple: tuple_val,
+                    index,
+                    cont: box expr_cont(anf::Value::Var {
+                        name: r,
+                        type_args: Vec::new(),
+                    }),
+                }
+            }),
         }
     }
 

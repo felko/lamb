@@ -1,4 +1,4 @@
-#![feature(never_type, box_syntax, box_patterns, let_chains, trait_alias)]
+#![feature(never_type, box_syntax, box_patterns, let_chains, trait_alias, iterator_try_collect)]
 
 #[macro_use]
 extern crate lalrpop_util;

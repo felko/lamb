@@ -15,6 +15,7 @@ extern {
         "<" => Token::LAngle,
         ">" => Token::RAngle,
         "," => Token::Comma,
+        "." => Token::Dot,
         ":" => Token::Colon,
         "=" => Token::Equal,
         "->" => Token::Arrow,
@@ -39,7 +40,7 @@ extern {
 Box<T>: Box<T> = T => Box::new(<>);
 
 Comma<T>: Vec<T> = {
-    <mut v:(<T> ",")*> <e:T?> => match e {
+    <mut v: (<T> ",")*> <e: T?> => match e {
         None => v,
         Some(e) => {
             v.push(e);
@@ -77,7 +78,11 @@ Type1: Type<'src> = {
     "Int" => Type::Int,
     "Bool" => Type::Bool,
     <name: Identifier> => Type::Name(name),
-    "(" <Type0> ")" => <>,
+    "(" <elements: Comma<Type0>> ")" => if elements.len() == 1 {
+        elements[0].clone()
+    } else {
+        Type::Tuple(elements)
+    },
 }
 
 Annotation: Type<'src> = {
@@ -132,5 +137,10 @@ Expr3: Expr<'src> = {
 Expr4: Expr<'src> = {
     Literal => Expr::Lit(<>),
     Identifier => Expr::Var(<>),
-    "(" <Expr0> ")" => <>,
+    "(" <elements: Comma<Expr0>> ")" => if elements.len() == 1 {
+        elements[0].clone()
+    } else {
+        Expr::Tuple(elements)
+    },
+    <tuple: Expr4> "." <index: Number> => Expr::Proj(box tuple, index as u8),
 }

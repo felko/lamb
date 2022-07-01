@@ -5,6 +5,7 @@ use crate::pretty::*;
 pub enum Type<'src> {
     Name(&'src str),
     Func(Vec<Type<'src>>, Box<Type<'src>>),
+    Tuple(Vec<Type<'src>>),
     Int,
     Bool,
 }
@@ -35,6 +36,8 @@ pub enum Expr<'src> {
         then: Box<Expr<'src>>,
         else_: Box<Expr<'src>>,
     },
+    Tuple(Vec<Expr<'src>>),
+    Proj(Box<Expr<'src>>, u8),
     Ann(Box<Expr<'src>>, Type<'src>),
 }
 
@@ -140,6 +143,14 @@ impl<'src, 'a> PrettyPrec<'a> for Type<'src> {
                     result
                 }
             }
+            Type::Tuple(elements) => allocator
+                .intersperse(
+                    elements
+                        .iter()
+                        .map(|element| element.clone().pretty_prec(0, allocator)),
+                    ", ",
+                )
+                .parens(),
             Type::Int => allocator.text("Int"),
             Type::Bool => allocator.text("Bool"),
         }
@@ -304,6 +315,18 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                     result
                 }
             }
+            Expr::Tuple(elements) => allocator
+                .intersperse(
+                    elements
+                        .iter()
+                        .map(|element| element.clone().pretty_prec(0, allocator)),
+                    ", ",
+                )
+                .parens(),
+            Expr::Proj(tuple, index) => tuple
+                .pretty_prec(2, allocator)
+                .append(".")
+                .append(index.to_string()),
             Expr::Ann(expr, type_) => expr
                 .pretty_prec(1, allocator)
                 .append(allocator.space())

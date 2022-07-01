@@ -1,0 +1,24 @@
+def test =
+    let
+        tup = (1, true)
+    in
+        tup.0
+
+# Not a tuple: attempted to take projection on a value of type Int which is not a tuple
+# def test_not_a_tuple (x : Int) =
+#     x.0
+
+# Ambiguous tuple: cannot infer tuple type only from projection
+# def test_cant_infer_tuple p = p.0
+
+def vec_add (p : (Int, Int)) (q : (Int, Int)) =
+    (p.0 + q.0, p.1 + q.1)
+
+def cond_inc1 (p : (Bool, Int)) =
+    if p.0 then
+        p.1 + 1
+    else
+        p.1
+
+def cond_inc2 (p : (Bool, Int)) =
+    p.1 + (if p.0 then 1 else 0)

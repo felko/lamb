@@ -69,6 +69,17 @@ pub enum Expr<'src> {
         args: Vec<Value<'src>>,
         cont: Box<Expr<'src>>,
     },
+    LetTuple {
+        name: String,
+        elements: Vec<Value<'src>>,
+        cont: Box<Expr<'src>>,
+    },
+    LetProj {
+        name: String,
+        tuple: Value<'src>,
+        index: u8,
+        cont: Box<Expr<'src>>,
+    },
     If {
         cond: Value<'src>,
         return_type: Type<'src>,
@@ -189,7 +200,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(
                     allocator
                         .hardline()
-                        .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
+                        .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
                 )
                 .append(allocator.hardline())
                 .append(cont.pretty_prec(0, allocator)),
@@ -240,7 +251,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .append(
                         allocator
                             .hardline()
-                            .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE))
+                            .append(body.pretty_prec(0, allocator).indent(PRETTY_INDENT_SIZE)),
                     )
                     .append(allocator.hardline())
                     .append(cont.pretty_prec(0, allocator))
@@ -326,7 +337,43 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .append(allocator.hardline())
                     .append(cont.pretty_prec(0, allocator))
             }
-
+            Expr::LetTuple {
+                name,
+                elements,
+                cont,
+            } => allocator
+                .text("let")
+                .annotate(ColorSpec::new().set_bold(true).clone())
+                .append(allocator.space())
+                .append(allocator.text(name))
+                .append(allocator.space())
+                .append("=")
+                .append(allocator.space())
+                .append(
+                    allocator
+                        .intersperse(
+                            elements
+                                .iter()
+                                .map(|element| element.clone().pretty_prec(0, allocator)),
+                            ", ",
+                        )
+                        .parens(),
+                )
+                .append(allocator.hardline())
+                .append(cont.pretty_prec(0, allocator)),
+            Expr::LetProj { name, tuple, index, cont } => allocator
+                .text("let")
+                .annotate(ColorSpec::new().set_bold(true).clone())
+                .append(allocator.space())
+                .append(allocator.text(name))
+                .append(allocator.space())
+                .append("=")
+                .append(allocator.space())
+                .append(tuple.pretty_prec(1, allocator))
+                .append(".")
+                .append(index.to_string())
+                .append(allocator.hardline())
+                .append(cont.pretty_prec(0, allocator)),
             Expr::If {
                 cond,
                 return_type,

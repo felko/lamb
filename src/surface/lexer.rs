@@ -26,6 +26,8 @@ pub enum TokenType {
     RAngle,
     #[token(",")]
     Comma,
+    #[token(".")]
+    Dot,
     #[token(":")]
     Colon,
     #[token("=")]
@@ -81,6 +83,7 @@ pub enum Token<'src> {
     LAngle,
     RAngle,
     Comma,
+    Dot,
     Colon,
     Equal,
     Arrow,
@@ -120,6 +123,7 @@ impl<'src> Display for Token<'src> {
             Token::LAngle => write!(f, "<"),
             Token::RAngle => write!(f, ">"),
             Token::Comma => write!(f, ","),
+            Token::Dot => write!(f, "."),
             Token::Colon => write!(f, ":"),
             Token::Equal => write!(f, "="),
             Token::Arrow => write!(f, "->"),
@@ -195,6 +199,7 @@ impl<'src> Lexer<'src> {
             TokenType::LAngle => Ok(Token::LAngle),
             TokenType::RAngle => Ok(Token::RAngle),
             TokenType::Comma => Ok(Token::Comma),
+            TokenType::Dot => Ok(Token::Dot),
             TokenType::Colon => Ok(Token::Colon),
             TokenType::Equal => Ok(Token::Equal),
             TokenType::Arrow => Ok(Token::Arrow),

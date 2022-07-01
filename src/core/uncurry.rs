@@ -96,6 +96,8 @@ fn uncurry_expr(expr: &mut Expr<'_>) {
                 args.extend(original_args);
             }
         }
+        Tuple(elements) => elements.iter_mut().for_each(uncurry_expr),
+        Proj(tuple, _) => uncurry_expr(tuple),
         Lit(_) => {}
         Var { .. } => {}
     }

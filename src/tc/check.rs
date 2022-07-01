@@ -57,6 +57,12 @@ impl<'src> Typechecker<'src> {
                     .collect(),
                 box Typechecker::type_core_to_tc(return_type),
             ),
+            core::Type::Tuple(element_types) => tc::Type::Tuple(
+                element_types
+                    .iter()
+                    .map(Typechecker::type_core_to_tc)
+                    .collect(),
+            ),
             core::Type::Int => Type::Int,
             core::Type::Bool => Type::Bool,
         }
@@ -102,6 +108,12 @@ impl<'src> Typechecker<'src> {
                 let return_type = self.instantiate_type(subst, return_type);
                 Type::Func(parameter_types, box return_type)
             }
+            Type::Tuple(element_types) => Type::Tuple(
+                element_types
+                    .iter()
+                    .map(|element_type| self.instantiate_type(subst, element_type.clone()))
+                    .collect(),
+            ),
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
         }
@@ -157,6 +169,12 @@ impl<'src> Typechecker<'src> {
                 let gen_return_type = self.generalize(skolems, return_type);
                 Type::Func(gen_param_types, box gen_return_type)
             }
+            Type::Tuple(element_types) => Type::Tuple(
+                element_types
+                    .iter()
+                    .map(|element_type| self.generalize(skolems, element_type.clone()))
+                    .collect(),
+            ),
         }
     }
 
@@ -240,6 +258,15 @@ impl<'src> Typechecker<'src> {
                 then: box self.generalize_expr(skolems, then),
                 else_: box self.generalize_expr(skolems, else_),
             },
+            tc::Expr::Tuple(elements) => tc::Expr::Tuple(
+                elements
+                    .iter()
+                    .map(|element| self.generalize_expr(skolems, element.clone()))
+                    .collect(),
+            ),
+            tc::Expr::Proj(box tuple, index) => {
+                tc::Expr::Proj(box self.generalize_expr(skolems, tuple), index)
+            }
         }
     }
 
@@ -279,6 +306,9 @@ impl<'src> Typechecker<'src> {
                     .all(|param_type| self.occurs_check(tvar_key, param_type))
                     && self.occurs_check(tvar_key, return_type)
             }
+            Type::Tuple(element_types) => element_types
+                .iter()
+                .all(|element_type| self.occurs_check(tvar_key, element_type)),
         }
     }
 
@@ -382,6 +412,14 @@ impl<'src> Typechecker<'src> {
                     .collect::<Result<Vec<tc::Type<'src>>, TypeError<'src>>>()?;
                 let tc_return_type = self.surface_type_to_tc_type(type_params, subst, ret)?;
                 Ok(Type::Func(tc_param_types, box tc_return_type))
+            }
+            surface::Type::Tuple(elements) => {
+                let tc_elements = elements
+                    .iter()
+                    .cloned()
+                    .map(|element| self.surface_type_to_tc_type(type_params, subst, element))
+                    .collect::<Result<Vec<tc::Type<'src>>, TypeError<'src>>>()?;
+                Ok(Type::Tuple(tc_elements))
             }
             surface::Type::Int => Ok(Type::Int),
             surface::Type::Bool => Ok(Type::Bool),
@@ -636,6 +674,33 @@ impl<'src> Typechecker<'src> {
                     },
                     return_type,
                 ))
+            }
+            surface::Expr::Tuple(elements) => {
+                let (elements_elab, elements_type) = elements
+                    .iter()
+                    .map(|element| self.infer(element.clone()))
+                    .try_collect()
+                    .map(|elements_elab_type: Vec<(tc::Expr<'src>, Type<'src>)>| {
+                        elements_elab_type.into_iter().unzip()
+                    })?;
+                Ok((
+                    tc::Expr::Tuple(elements_elab),
+                    tc::Type::Tuple(elements_type),
+                ))
+            }
+            surface::Expr::Proj(box tuple, index) => {
+                let (tuple_elab, mut tuple_type) = self.infer(tuple)?;
+                self.find(&mut tuple_type);
+                match tuple_type {
+                    Type::Tuple(element_types) => match element_types.get(index as usize) {
+                        Some(element_type) => {
+                            Ok((tc::Expr::Proj(box tuple_elab, index), element_type.clone()))
+                        }
+                        _ => Err(TypeError::ProjectionOutOfBounds(element_types, index)),
+                    },
+                    Type::TVar(_) => Err(TypeError::AmbiguousTuple),
+                    _ => Err(TypeError::NotATuple(tuple_type)),
+                }
             }
             surface::Expr::Ann(box expr, type_) => {
                 let mut expr_type =
@@ -944,7 +1009,11 @@ impl<'src> Typechecker<'src> {
                             Scheme {
                                 variables: decl_elab.type_params,
                                 type_: Type::Func(
-                                    decl_elab.params.iter().map(|param| param.type_.clone()).collect(),
+                                    decl_elab
+                                        .params
+                                        .iter()
+                                        .map(|param| param.type_.clone())
+                                        .collect(),
                                     box decl_elab.return_type,
                                 ),
                             },
@@ -973,6 +1042,12 @@ impl<'src> Typechecker<'src> {
                     .map(|param_type| self.type_tc_to_core(param_type.clone()))
                     .collect(),
                 box self.type_tc_to_core(return_type),
+            ),
+            Type::Tuple(element_types) => core::Type::Tuple(
+                element_types
+                    .iter()
+                    .map(|element_type| self.type_tc_to_core(element_type.clone()))
+                    .collect(),
             ),
             Type::Int => core::Type::Int,
             Type::Bool => core::Type::Bool,
@@ -1048,6 +1123,15 @@ impl<'src> Typechecker<'src> {
                     .map(|arg| self.expr_tc_to_core(arg.clone()))
                     .collect(),
             },
+            tc::Expr::Tuple(elements) => core::Expr::Tuple(
+                elements
+                    .iter()
+                    .map(|element| self.expr_tc_to_core(element.clone()))
+                    .collect(),
+            ),
+            tc::Expr::Proj(box tuple, index) => {
+                core::Expr::Proj(box self.expr_tc_to_core(tuple), index)
+            }
         }
     }
 
