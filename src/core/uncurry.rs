@@ -107,6 +107,11 @@ fn uncurry_decl(decl: &mut FunDecl<'_>) {
     decl.params.iter_mut().for_each(uncurry_binding);
     uncurry_type(&mut decl.return_type);
     uncurry_expr(&mut decl.body);
+    if let Expr::Abs { params: body_params, return_type: body_return_type, body: box body_body } = decl.body.clone() {
+        decl.params.extend(body_params);
+        decl.return_type = body_return_type;
+        decl.body = body_body;
+    }
 }
 
 pub fn uncurry_module(module: &mut Module) {
