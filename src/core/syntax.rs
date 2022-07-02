@@ -213,7 +213,7 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                         .append(allocator.intersperse(
                             params
                                 .iter()
-                                .map(|param| param.clone().pretty_prec(0, allocator)),
+                                .map(|param| param.clone().pretty_prec(1, allocator)),
                             allocator.space(),
                         ))
                         .append(allocator.space())
@@ -267,7 +267,7 @@ impl<'src, 'a> PrettyPrec<'a> for Expr<'src> {
                     .append(allocator.concat(params.iter().map(|param| {
                         allocator
                             .space()
-                            .append(param.clone().pretty_prec(0, allocator))
+                            .append(param.clone().pretty_prec(1, allocator))
                     })))
                     .append(allocator.space())
                     .append(":")

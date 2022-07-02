@@ -177,16 +177,19 @@ impl<'a, 'src> PrettyPrec<'a> for Type<'src> {
     }
 }
 
-impl<'a, 'src> PrettyPrec<'a> for Binding<'src> {
-    fn pretty_prec(self, _: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
-        allocator
-            .text("(")
-            .append(self.name.to_owned())
+impl<'src, 'a> PrettyPrec<'a> for Binding<'src> {
+    fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
+        let result = allocator
+            .text(self.name.to_owned())
             .append(allocator.space())
             .append(":")
             .append(allocator.space())
-            .append(self.type_.pretty_prec(0, allocator))
-            .append(")")
+            .append(self.type_.pretty_prec(0, allocator));
+        if prec > 0 {
+            result.parens()
+        } else {
+            result
+        }
     }
 }
 
@@ -224,7 +227,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                         .append(allocator.intersperse(
                             params
                                 .iter()
-                                .map(|param| param.clone().pretty_prec(0, allocator)),
+                                .map(|param| param.clone().pretty_prec(1, allocator)),
                             allocator.space(),
                         ))
                         .append(allocator.space())
@@ -278,7 +281,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .append(allocator.concat(params.iter().map(|param| {
                         allocator
                             .space()
-                            .append(param.clone().pretty_prec(0, allocator))
+                            .append(param.clone().pretty_prec(1, allocator))
                     })))
                     .append(allocator.space())
                     .append(":")

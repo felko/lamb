@@ -100,7 +100,7 @@ impl<'src, 'a> PrettyPrec<'a> for Decl<'src> {
                 result = result.append(allocator.concat(params.iter().map(|param| {
                     allocator
                         .space()
-                        .append(param.clone().pretty_prec(0, allocator))
+                        .append(param.clone().pretty_prec(1, allocator))
                 })));
 
                 if let Some(return_type) = return_type {
