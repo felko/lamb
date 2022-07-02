@@ -110,7 +110,7 @@ impl<'src, 'a> PrettyPrec<'a> for FunDecl<'src> {
             .append(allocator.concat(self.params.iter().map(|param| {
                 allocator
                     .space()
-                    .append(param.clone().pretty_prec(0, allocator))
+                    .append(param.clone().pretty_prec(1, allocator))
             })))
             .append(allocator.space())
             .append(":")

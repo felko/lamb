@@ -1,4 +1,4 @@
-#![feature(never_type, box_syntax, box_patterns, let_chains, trait_alias, iterator_try_collect)]
+#![feature(never_type, box_syntax, box_patterns, let_chains, if_let_guard, trait_alias, iterator_try_collect)]
 
 #[macro_use]
 extern crate lalrpop_util;
@@ -20,7 +20,7 @@ mod pretty;
 mod surface;
 mod tc;
 
-use crate::anf::anf_convert;
+use crate::anf::{anf_convert, closure_convert};
 use crate::core::uncurry;
 use crate::pipeline::*;
 use crate::surface::parse;
@@ -54,18 +54,23 @@ fn main() {
         ))
         .then(LogPrettyPass::new(
             "typechecking",
-            false,
+            true,
             FailliblePass::new(typecheck),
         ))
         .then(LogPrettyPass::new(
             "uncurrying",
-            false,
+            true,
             InplacePass::new(uncurry),
         ))
         .then(LogPrettyPass::new(
             "anf",
             true,
             SimplePass::new(anf_convert),
+        ))
+        .then(LogPrettyPass::new(
+            "closure conversion",
+            true,
+            InplacePass::new(closure_convert),
         ))
         .build();
 

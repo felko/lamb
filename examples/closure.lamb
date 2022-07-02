@@ -1,0 +1,11 @@
+def add_closure x =
+    let add_x y =
+        x + y
+    in
+        add_x 2
+
+# def after_inc f =
+#     let g x =
+#         f (x + 1)
+#     in
+#         g
