@@ -322,7 +322,6 @@ impl ClosureConverter {
                     name: callee.clone(),
                     type_args: type_args.clone(),
                 };
-                args.push(closure.clone());
                 *expr = Expr::LetProj {
                     name: f.clone(),
                     tuple: closure,
