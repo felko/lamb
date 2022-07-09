@@ -153,15 +153,15 @@ impl ANFConverter {
                 let join_point_name2 = join_point_name.clone();
                 let join_cont = box move |value| anf::Expr::Jump {
                     name: join_point_name2,
-                    arg: value,
+                    args: vec![value],
                 };
                 let join_param = self.fresh("r");
                 anf::Expr::LetJoin {
                     name: join_point_name,
-                    param: anf::Binding {
+                    params: vec![anf::Binding {
                         name: join_param.clone(),
                         type_: return_type.clone(),
-                    },
+                    }],
                     body: box expr_cont(anf::Value::Var {
                         name: join_param,
                         type_args: Vec::new(),

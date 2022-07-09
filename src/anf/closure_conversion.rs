@@ -110,16 +110,15 @@ impl ClosureConverter {
                     Expr::Halt { value }
                 });
             }
-            Expr::Jump { name, arg } => {
-                *expr =
-                    self.substitute_value(env_name, subst, arg.clone(), box move |arg| Expr::Jump {
-                        name: name.clone(),
-                        arg,
-                    })
+            Expr::Jump { name, args } => {
+                *expr = self.substitute_values(env_name, subst, args, box move |args| Expr::Jump {
+                    name: name.clone(),
+                    args,
+                })
             }
             Expr::LetJoin {
                 name,
-                param,
+                params,
                 body,
                 cont,
             } => {
@@ -244,10 +243,10 @@ impl ClosureConverter {
     fn convert_expr<'src>(&self, expr: &mut Expr<'src>) {
         match expr {
             Expr::Halt { .. } => {}
-            Expr::Jump { name, arg } => {}
+            Expr::Jump { name, args } => {}
             Expr::LetJoin {
                 name,
-                param,
+                params,
                 body,
                 cont,
             } => {
@@ -386,18 +385,21 @@ fn free_variables_value(fvs: &mut HashSet<String>, value: &Value) {
 fn free_variables_expr(fvs: &mut HashSet<String>, expr: &Expr) {
     match expr {
         Expr::Halt { value } => free_variables_value(fvs, value),
-        Expr::Jump { name, arg } => {
-            free_variables_value(fvs, arg);
+        Expr::Jump { name, args } => {
+            args.iter().for_each(|arg| free_variables_value(fvs, arg));
             fvs.insert(name.clone());
         }
         Expr::LetJoin {
             name,
-            param,
+            params,
             body,
             cont,
         } => {
             free_variables_expr(fvs, body);
             free_variables_expr(fvs, cont);
+            params.iter().for_each(|Binding { name, .. }| {
+                fvs.remove(name);
+            });
             fvs.remove(name);
         }
         Expr::LetFun {
