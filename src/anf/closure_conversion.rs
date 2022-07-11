@@ -36,6 +36,7 @@ impl ClosureConverter {
             let c = self.fresh("c");
             Expr::LetProj {
                 name: c.clone(),
+                type_: todo!(),
                 tuple: Value::Var {
                     name: env_name.to_string(),
                     type_args: Vec::new(),
@@ -119,6 +120,7 @@ impl ClosureConverter {
             Expr::LetJoin {
                 name,
                 params,
+                return_type,
                 body,
                 cont,
             } => {
@@ -172,6 +174,7 @@ impl ClosureConverter {
             }
             Expr::LetApp {
                 name,
+                type_,
                 callee,
                 type_args,
                 args,
@@ -182,6 +185,7 @@ impl ClosureConverter {
                         self.substitute_free_variables(env_name, subst, cont);
                         Expr::LetApp {
                             name: name.clone(),
+                            type_: type_.clone(),
                             callee,
                             type_args: type_args.clone(),
                             args,
@@ -192,6 +196,7 @@ impl ClosureConverter {
             }
             Expr::LetTuple {
                 name,
+                types,
                 elements,
                 cont,
             } => {
@@ -199,6 +204,7 @@ impl ClosureConverter {
                     self.substitute_free_variables(env_name, subst, cont);
                     Expr::LetTuple {
                         name: name.clone(),
+                        types: types.clone(),
                         elements,
                         cont: cont.clone(),
                     }
@@ -206,6 +212,7 @@ impl ClosureConverter {
             }
             Expr::LetProj {
                 name,
+                type_,
                 tuple,
                 index,
                 cont,
@@ -214,6 +221,7 @@ impl ClosureConverter {
                     self.substitute_free_variables(env_name, subst, cont);
                     Expr::LetProj {
                         name: name.clone(),
+                        type_: type_.clone(),
                         tuple,
                         index: *index,
                         cont: cont.clone(),
@@ -247,6 +255,7 @@ impl ClosureConverter {
             Expr::LetJoin {
                 name,
                 params,
+                return_type,
                 body,
                 cont,
             } => {
@@ -286,8 +295,10 @@ impl ClosureConverter {
                     type_: Type::QVar(env_name.clone()),
                 });
                 self.convert_expr(cont);
+                let closure_type = todo!();
                 *cont = box Expr::LetTuple {
                     name: name.clone(),
+                    types: closure_type,
                     elements: closure,
                     cont: cont.clone(),
                 };
@@ -310,6 +321,7 @@ impl ClosureConverter {
             }
             Expr::LetApp {
                 name,
+                type_,
                 callee,
                 type_args,
                 args,
@@ -323,10 +335,12 @@ impl ClosureConverter {
                 };
                 *expr = Expr::LetProj {
                     name: f.clone(),
+                    type_: todo!(),
                     tuple: closure,
                     index: 0,
                     cont: box Expr::LetApp {
                         name: name.clone(),
+                        type_: todo!(),
                         type_args: Vec::new(),
                         callee: f,
                         args: args.clone(),
@@ -336,6 +350,7 @@ impl ClosureConverter {
             }
             Expr::LetTuple {
                 name,
+                types,
                 elements,
                 cont,
             } => {
@@ -343,6 +358,7 @@ impl ClosureConverter {
             }
             Expr::LetProj {
                 name,
+                type_,
                 tuple,
                 index,
                 cont,
@@ -392,6 +408,7 @@ fn free_variables_expr(fvs: &mut HashSet<String>, expr: &Expr) {
         Expr::LetJoin {
             name,
             params,
+            return_type,
             body,
             cont,
         } => {
@@ -440,6 +457,7 @@ fn free_variables_expr(fvs: &mut HashSet<String>, expr: &Expr) {
         }
         Expr::LetApp {
             name,
+            type_,
             callee,
             type_args,
             args,
@@ -452,6 +470,7 @@ fn free_variables_expr(fvs: &mut HashSet<String>, expr: &Expr) {
         }
         Expr::LetTuple {
             name,
+            types,
             elements,
             cont,
         } => {
@@ -463,6 +482,7 @@ fn free_variables_expr(fvs: &mut HashSet<String>, expr: &Expr) {
         }
         Expr::LetProj {
             name,
+            type_,
             tuple,
             index,
             cont,

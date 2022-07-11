@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 pub use crate::common::Literal;
-pub use crate::core::{Binding, Type};
+pub use crate::core::{Binding, Scheme, Type};
 use crate::pretty::*;
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,7 @@ pub enum Expr<'src> {
     LetJoin {
         name: String,
         params: Vec<Binding<'src>>,
+        return_type: Type<'src>,
         body: Box<Expr<'src>>,
         cont: Box<Expr<'src>>,
     },
@@ -64,6 +65,7 @@ pub enum Expr<'src> {
     },
     LetApp {
         name: String,
+        type_: Type<'src>,
         callee: String,
         type_args: Vec<Type<'src>>,
         args: Vec<Value<'src>>,
@@ -71,11 +73,13 @@ pub enum Expr<'src> {
     },
     LetTuple {
         name: String,
+        types: Vec<Type<'src>>,
         elements: Vec<Value<'src>>,
         cont: Box<Expr<'src>>,
     },
     LetProj {
         name: String,
+        type_: Type<'src>,
         tuple: Value<'src>,
         index: u8,
         cont: Box<Expr<'src>>,
@@ -185,12 +189,16 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(name)
                 .append(
                     allocator
-                        .intersperse(args.iter().map(|arg| arg.clone().pretty_prec(0, allocator)), ", ")
+                        .intersperse(
+                            args.iter().map(|arg| arg.clone().pretty_prec(0, allocator)),
+                            ", ",
+                        )
                         .parens(),
                 ),
             Expr::LetJoin {
                 name,
                 params,
+                return_type,
                 body,
                 cont,
             } => allocator
@@ -201,11 +209,17 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(
                     allocator
                         .intersperse(
-                            params.iter().map(|param| param.clone().pretty_prec(0, allocator)),
+                            params
+                                .iter()
+                                .map(|param| param.clone().pretty_prec(0, allocator)),
                             ", ",
                         )
                         .parens(),
                 )
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(return_type.pretty_prec(0, allocator))
                 .append(allocator.space())
                 .append("=")
                 .append(
@@ -299,6 +313,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(allocator.text(name))
                 .append(allocator.space())
                 .append(":")
+                .append(allocator.space())
                 .append(type_.pretty_prec(0, allocator))
                 .append(allocator.space())
                 .append("=")
@@ -308,6 +323,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(cont.pretty_prec(0, allocator)),
             Expr::LetApp {
                 name,
+                type_,
                 callee,
                 type_args,
                 args,
@@ -318,6 +334,10 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                     .annotate(ColorSpec::new().set_bold(true).clone())
                     .append(allocator.space())
                     .append(allocator.text(name))
+                    .append(allocator.space())
+                    .append(":")
+                    .append(allocator.space())
+                    .append(type_.pretty_prec(0, allocator))
                     .append(allocator.space())
                     .append("=")
                     .append(allocator.space())
@@ -350,6 +370,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
             }
             Expr::LetTuple {
                 name,
+                types,
                 elements,
                 cont,
             } => allocator
@@ -357,6 +378,19 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .annotate(ColorSpec::new().set_bold(true).clone())
                 .append(allocator.space())
                 .append(allocator.text(name))
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(
+                    allocator
+                        .intersperse(
+                            types
+                                .iter()
+                                .map(|type_| type_.clone().pretty_prec(0, allocator)),
+                            ", ",
+                        )
+                        .parens(),
+                )
                 .append(allocator.space())
                 .append("=")
                 .append(allocator.space())
@@ -374,6 +408,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(cont.pretty_prec(0, allocator)),
             Expr::LetProj {
                 name,
+                type_,
                 tuple,
                 index,
                 cont,
@@ -382,6 +417,10 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .annotate(ColorSpec::new().set_bold(true).clone())
                 .append(allocator.space())
                 .append(allocator.text(name))
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(type_.pretty_prec(0, allocator))
                 .append(allocator.space())
                 .append("=")
                 .append(allocator.space())

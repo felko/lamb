@@ -67,11 +67,11 @@ fn main() {
             true,
             SimplePass::new(anf_convert),
         ))
-        .then(LogPrettyPass::new(
-            "closure conversion",
-            true,
-            InplacePass::new(closure_convert),
-        ))
+        // .then(LogPrettyPass::new(
+        //     "closure conversion",
+        //     true,
+        //     InplacePass::new(closure_convert),
+        // ))
         .build();
 
     pipeline.run(source);
