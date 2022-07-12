@@ -1,4 +1,12 @@
-#![feature(never_type, box_syntax, box_patterns, let_chains, if_let_guard, trait_alias, iterator_try_collect)]
+#![feature(
+    never_type,
+    box_syntax,
+    box_patterns,
+    let_chains,
+    if_let_guard,
+    trait_alias,
+    iterator_try_collect
+)]
 
 #[macro_use]
 extern crate lalrpop_util;
@@ -15,6 +23,7 @@ mod anf;
 mod common;
 mod core;
 mod env;
+mod lifted;
 mod pipeline;
 mod pretty;
 mod surface;
@@ -22,6 +31,7 @@ mod tc;
 
 use crate::anf::{anf_convert, closure_convert};
 use crate::core::uncurry;
+use crate::lifted::lift;
 use crate::pipeline::*;
 use crate::surface::parse;
 use crate::tc::typecheck;
@@ -71,6 +81,11 @@ fn main() {
             "closure conversion",
             true,
             InplacePass::new(closure_convert),
+        ))
+        .then(LogPrettyPass::new(
+            "lifting",
+            true,
+            SimplePass::new(lift),
         ))
         .build();
 

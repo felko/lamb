@@ -1,10 +1,10 @@
-pub mod syntax;
-pub mod convert;
 pub mod closure_conversion;
+pub mod convert;
+pub mod syntax;
 
-pub use syntax::*;
-pub use convert::*;
 pub use closure_conversion::*;
+pub use convert::*;
+pub use syntax::*;
 
 use crate::core;
 
