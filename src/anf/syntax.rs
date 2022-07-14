@@ -381,20 +381,32 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .append(allocator.space())
                 .append(":")
                 .append(allocator.space())
-                .append(
+                .append(if types.len() == 1 {
+                    types[0]
+                        .clone()
+                        .pretty_prec(0, allocator)
+                        .append(",")
+                        .parens()
+                } else {
                     allocator
                         .intersperse(
                             types
                                 .iter()
-                                .map(|type_| type_.clone().pretty_prec(0, allocator)),
+                                .map(|element| element.clone().pretty_prec(0, allocator)),
                             ", ",
                         )
-                        .parens(),
-                )
+                        .parens()
+                })
                 .append(allocator.space())
                 .append("=")
                 .append(allocator.space())
-                .append(
+                .append(if elements.len() == 1 {
+                    elements[0]
+                        .clone()
+                        .pretty_prec(0, allocator)
+                        .append(",")
+                        .parens()
+                } else {
                     allocator
                         .intersperse(
                             elements
@@ -402,8 +414,8 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                                 .map(|element| element.clone().pretty_prec(0, allocator)),
                             ", ",
                         )
-                        .parens(),
-                )
+                        .parens()
+                })
                 .append(allocator.hardline())
                 .append(cont.pretty_prec(0, allocator)),
             Expr::LetProj {

@@ -161,14 +161,20 @@ impl<'a, 'src> PrettyPrec<'a> for Type<'src> {
                     result
                 }
             }
-            Type::Tuple(elements) => allocator
-                .intersperse(
-                    elements
-                        .iter()
-                        .map(|element| element.clone().pretty_prec(0, allocator)),
-                    ", ",
-                )
-                .parens(),
+            Type::Tuple(elements) => {
+                if elements.len() == 1 {
+                    elements[0].clone().pretty_prec(0, allocator).append(",").parens()
+                } else {
+                    allocator
+                        .intersperse(
+                            elements
+                                .iter()
+                                .map(|element| element.clone().pretty_prec(0, allocator)),
+                            ", ",
+                        )
+                        .parens()
+                }
+            }
             Type::Int => allocator.text("Int"),
             Type::Bool => allocator.text("Bool"),
             Type::QVar(name) => allocator.text(name),
