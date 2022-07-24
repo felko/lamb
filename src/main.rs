@@ -14,6 +14,9 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate im;
+
 use std::{fs::File, io::Read};
 
 use bumpalo::Bump;

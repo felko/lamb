@@ -275,8 +275,7 @@ impl ClosureConverter {
             } => {
                 self.convert_expr(body);
                 let env_name = self.fresh("env");
-                let mut fvs = HashMap::new();
-                free_variables_expr(&mut fvs, body);
+                let mut fvs = free_variables_expr(body);
                 for param in params.clone() {
                     fvs.remove(&param.name);
                 }
@@ -397,25 +396,28 @@ fn infer_value<'src>(value: &Value<'src>) -> Type<'src> {
     }
 }
 
-fn free_variables_value<'src>(fvs: &mut HashMap<String, Type<'src>>, value: &Value<'src>) {
+fn free_variables_value<'src>(value: &Value<'src>) -> im::hashmap::HashMap<String, Type<'src>> {
     match value {
         Value::Var { name, type_, .. } => {
-            fvs.insert(name.clone(), type_.clone());
+            hashmap! {
+                name.clone() => type_.clone()
+            }
         }
-        Value::Lit(_) => {}
+        Value::Lit(_) => im::hashmap::HashMap::new()
     }
 }
 
-fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<'src>) {
+fn free_variables_expr<'src>(expr: &Expr<'src>) -> im::hashmap::HashMap<String, Type<'src>> {
     match expr {
-        Expr::Halt { value } => free_variables_value(fvs, value),
+        Expr::Halt { value } => free_variables_value(value),
         Expr::Jump {
             name,
             args,
             return_type,
         } => {
-            args.iter().for_each(|arg| free_variables_value(fvs, arg));
-            fvs.insert(name.clone(), return_type.clone());
+            let mut fvs = hashmap!{ name.clone() => return_type.clone()};
+            args.iter().for_each(|arg| fvs.extend(free_variables_value(arg)));
+            fvs
         }
         Expr::LetJoin {
             name,
@@ -424,12 +426,13 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             body,
             cont,
         } => {
-            free_variables_expr(fvs, body);
-            free_variables_expr(fvs, cont);
+            let mut fvs = free_variables_expr(body);
             params.iter().for_each(|Binding { name, .. }| {
                 fvs.remove(name);
             });
+            fvs.extend(free_variables_expr(cont));
             fvs.remove(name);
+            fvs
         }
         Expr::LetFun {
             name,
@@ -439,12 +442,13 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             body,
             cont,
         } => {
-            free_variables_expr(fvs, body);
+            let mut fvs = free_variables_expr(body);
             params.iter().for_each(|param| {
                 fvs.remove(&param.name);
             });
-            free_variables_expr(fvs, cont);
+            free_variables_expr(cont);
             fvs.remove(name);
+            fvs
         }
         Expr::LetAdd {
             name,
@@ -452,10 +456,11 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             rhs,
             cont,
         } => {
-            free_variables_value(fvs, lhs);
-            free_variables_value(fvs, rhs);
-            free_variables_expr(fvs, cont);
+            let mut fvs = free_variables_value(lhs);
+            fvs.extend(free_variables_value(rhs));
+            fvs.extend(free_variables_expr(cont));
             fvs.remove(name);
+            fvs
         }
         Expr::LetVal {
             name,
@@ -463,9 +468,10 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             value,
             cont,
         } => {
-            free_variables_value(fvs, value);
-            free_variables_expr(fvs, cont);
+            let mut fvs = free_variables_value(value);
+            fvs.extend(free_variables_expr(cont));
             fvs.remove(name);
+            fvs
         }
         Expr::LetApp {
             name,
@@ -474,10 +480,11 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             args,
             cont,
         } => {
-            free_variables_value(fvs, callee);
-            args.iter().for_each(|arg| free_variables_value(fvs, arg));
-            free_variables_expr(fvs, cont);
+            let mut fvs = free_variables_value(callee);
+            args.iter().for_each(|arg| fvs.extend(free_variables_value(arg)));
+            fvs.extend(free_variables_expr(cont));
             fvs.remove(name);
+            fvs
         }
         Expr::LetTuple {
             name,
@@ -485,11 +492,13 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             elements,
             cont,
         } => {
+            let mut fvs = im::hashmap::HashMap::new();
             elements
                 .iter()
-                .for_each(|element| free_variables_value(fvs, element));
-            free_variables_expr(fvs, cont);
+                .for_each(|element| fvs.extend(free_variables_value(element)));
+            free_variables_expr(cont);
             fvs.remove(name);
+            fvs
         }
         Expr::LetProj {
             name,
@@ -498,9 +507,10 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             index: _,
             cont,
         } => {
-            free_variables_value(fvs, tuple);
-            free_variables_expr(fvs, cont);
+            let mut fvs = free_variables_value(tuple);
+            fvs.extend(free_variables_expr(cont));
             fvs.remove(name);
+            fvs
         }
         Expr::If {
             cond,
@@ -508,9 +518,10 @@ fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<
             then,
             else_,
         } => {
-            free_variables_value(fvs, cond);
-            free_variables_expr(fvs, then);
-            free_variables_expr(fvs, else_);
+            let mut fvs = free_variables_value(cond);
+            fvs.extend(free_variables_expr(then));
+            fvs.extend(free_variables_expr(else_));
+            fvs
         }
     }
 }
