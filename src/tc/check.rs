@@ -196,12 +196,13 @@ impl<'src> Typechecker<'src> {
     ) -> tc::Expr<'src> {
         match expr {
             tc::Expr::Lit(value) => tc::Expr::Lit(value),
-            tc::Expr::Var { name, type_args } => tc::Expr::Var {
+            tc::Expr::Var { name, type_args, type_ } => tc::Expr::Var {
                 name,
                 type_args: type_args
                     .iter()
                     .map(|type_arg| self.generalize(skolems, type_arg.clone()))
                     .collect(),
+                type_: self.generalize(skolems, type_),
             },
             tc::Expr::Add(box lhs, box rhs) => tc::Expr::Add(
                 box self.generalize_expr(skolems, lhs),
@@ -508,7 +509,7 @@ impl<'src> Typechecker<'src> {
             surface::Expr::Var(name) => {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (instantiated, type_args) = self.instantiate(scheme.clone());
-                    Ok((tc::Expr::Var { name, type_args }, instantiated))
+                    Ok((tc::Expr::Var { name, type_args, type_: instantiated.clone() }, instantiated))
                 } else {
                     Err(TypeError::ScopeError(name))
                 }
@@ -728,7 +729,7 @@ impl<'src> Typechecker<'src> {
                 if let Some(scheme) = self.env.lookup(name) {
                     let (mut var_type, type_args) = self.instantiate(scheme.clone());
                     self.unify(&mut var_type, expected_type)?;
-                    Ok(tc::Expr::Var { name, type_args })
+                    Ok(tc::Expr::Var { name, type_args, type_: var_type })
                 } else {
                     Err(TypeError::ScopeError(name))
                 }
@@ -1064,12 +1065,13 @@ impl<'src> Typechecker<'src> {
     fn expr_tc_to_core(&self, expr: tc::Expr<'src>) -> core::Expr<'src> {
         match expr {
             tc::Expr::Lit(literal) => core::Expr::Lit(literal),
-            tc::Expr::Var { name, type_args } => core::Expr::Var {
+            tc::Expr::Var { name, type_args, type_ } => core::Expr::Var {
                 name,
                 type_args: type_args
                     .iter()
                     .map(|type_arg| self.type_tc_to_core(type_arg.clone()))
                     .collect(),
+                type_: self.type_tc_to_core(type_.clone())
             },
             tc::Expr::Abs {
                 params,

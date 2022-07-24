@@ -8,8 +8,6 @@ pub struct ClosureConverter {
     var_supply: Rc<Cell<usize>>,
 }
 
-type Env<'src> = im::hashmap::HashMap<String, Scheme<'src>>;
-
 impl ClosureConverter {
     pub fn new() -> ClosureConverter {
         ClosureConverter {
@@ -40,6 +38,7 @@ impl ClosureConverter {
                 tuple: Value::Var {
                     name: env_name.to_string(),
                     type_args: Vec::new(),
+                    type_: type_.clone(),
                 },
                 index: *index,
                 cont: box cont(c),
@@ -56,11 +55,12 @@ impl ClosureConverter {
         value: Value<'src>,
         cont: Box<dyn FnOnce(Value<'src>) -> Expr<'src> + 'a>,
     ) -> Expr<'src> {
-        if let Value::Var { name, .. } = value.clone() {
+        if let Value::Var { name, type_, .. } = value.clone() {
             self.substitute_var(env_name, subst, name, box move |var| {
                 cont(Value::Var {
                     name: var,
                     type_args: Vec::new(),
+                    type_,
                 })
             })
         } else {
@@ -111,16 +111,21 @@ impl ClosureConverter {
                     Expr::Halt { value }
                 });
             }
-            Expr::Jump { name, args } => {
+            Expr::Jump {
+                name,
+                args,
+                return_type,
+            } => {
                 *expr = self.substitute_values(env_name, subst, args, box move |args| Expr::Jump {
                     name: name.clone(),
                     args,
+                    return_type: return_type.clone(),
                 })
             }
             Expr::LetJoin {
-                name,
-                params,
-                return_type,
+                name: _,
+                params: _,
+                return_type: _,
                 body,
                 cont,
             } => {
@@ -128,10 +133,10 @@ impl ClosureConverter {
                 self.substitute_free_variables(env_name, subst, cont);
             }
             Expr::LetFun {
-                name,
-                type_params,
-                params,
-                return_type,
+                name: _,
+                type_params: _,
+                params: _,
+                return_type: _,
                 body,
                 cont,
             } => {
@@ -176,18 +181,16 @@ impl ClosureConverter {
                 name,
                 type_,
                 callee,
-                type_args,
                 args,
                 cont,
             } => {
-                *expr = self.substitute_var(env_name, subst, callee.clone(), box move |callee| {
+                *expr = self.substitute_value(env_name, subst, callee.clone(), box move |callee| {
                     self.substitute_values(env_name, subst, args, box move |args| {
                         self.substitute_free_variables(env_name, subst, cont);
                         Expr::LetApp {
                             name: name.clone(),
                             type_: type_.clone(),
                             callee,
-                            type_args: type_args.clone(),
                             args,
                             cont: cont.clone(),
                         }
@@ -248,391 +251,181 @@ impl ClosureConverter {
         }
     }
 
-    fn convert_expr<'src>(&self, mut env: Env<'src>, expr: &mut Expr<'src>) {
+    fn convert_expr<'src>(&self, expr: &mut Expr<'src>) {
         match expr {
             Expr::Halt { .. } => {}
-            Expr::Jump { name, args } => {}
+            Expr::Jump { .. } => {}
             Expr::LetJoin {
-                name,
-                params,
-                return_type,
+                name: _,
+                params: _,
+                return_type: _,
                 body,
                 cont,
             } => {
-                let body_env = {
-                    let mut env = env.clone();
-                    params.iter().for_each(|param| {
-                        env.insert(
-                            param.name.clone(),
-                            Scheme {
-                                variables: Vec::new(),
-                                type_: param.type_.clone(),
-                            },
-                        );
-                    });
-                    env
-                };
-                self.convert_expr(body_env, body);
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: Type::Func(
-                            params.iter().map(|param| param.type_.clone()).collect(),
-                            box return_type.clone(),
-                        ),
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(body);
+                self.convert_expr(cont);
             }
             Expr::LetFun {
-                name,
-                type_params,
+                name: _,
+                type_params: _,
                 params,
-                return_type,
+                return_type: _,
                 body,
                 cont,
             } => {
-                let body_env = {
-                    let mut env = env.clone();
-                    params.iter().for_each(|param| {
-                        env.insert(
-                            param.name.clone(),
-                            Scheme {
-                                variables: Vec::new(),
-                                type_: param.type_.clone(),
-                            },
-                        );
-                    });
-                    env
-                };
-                self.convert_expr(body_env.clone(), body);
+                self.convert_expr(body);
                 let env_name = self.fresh("env");
                 let mut fvs = HashMap::new();
-                free_variables_expr(body_env, &mut fvs, body);
+                free_variables_expr(&mut fvs, body);
                 for param in params.clone() {
                     fvs.remove(&param.name);
                 }
-                let mut closure = vec![Value::Var {
-                    name: name.clone(),
-                    type_args: Vec::new(),
-                }];
-                let callee_type = Type::Func(
-                    params.iter().map(|param| param.type_.clone()).collect(),
-                    box return_type.clone(),
-                );
+                let mut env = Vec::new();
                 let mut subst = HashMap::new();
-                let mut closure_types = vec![callee_type.clone()];
+                let mut env_types = Vec::new();
                 for (i, (fv, type_)) in fvs.iter().enumerate() {
-                    subst.insert(fv.clone(), ((i + 1) as u8, type_.clone()));
-                    closure.push(Value::Var {
+                    subst.insert(fv.clone(), (i as u8, type_.clone()));
+                    env.push(Value::Var {
                         name: fv.clone(),
                         type_args: Vec::new(),
+                        type_: type_.clone(),
                     });
-                    closure_types.push(type_.clone());
+                    env_types.push(type_.clone());
                 }
                 self.substitute_free_variables(&env_name, &subst, body);
                 params.push(Binding {
                     name: env_name.clone(),
-                    type_: Type::Tuple(closure_types.clone()),
+                    type_: Type::Tuple(env_types.clone()),
                 });
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: type_params.clone(),
-                        type_: callee_type,
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(cont);
                 *cont = box Expr::LetTuple {
-                    name: name.clone(),
-                    types: closure_types,
-                    elements: closure,
+                    name: env_name,
+                    types: env_types,
+                    elements: env,
                     cont: cont.clone(),
                 };
             }
             Expr::LetAdd {
-                name,
-                lhs,
-                rhs,
+                name: _,
+                lhs: _,
+                rhs: _,
                 cont,
             } => {
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: Type::Int,
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(cont);
             }
             Expr::LetVal {
-                name,
-                type_,
-                value,
+                name: _,
+                type_: _,
+                value: _,
                 cont,
             } => {
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: type_.clone(),
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(cont);
             }
             Expr::LetApp {
                 name,
                 type_,
                 callee,
-                type_args,
                 args,
                 cont,
             } => {
                 let f = self.fresh("f");
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: type_.clone(),
-                    },
-                );
-                self.convert_expr(env.clone(), cont);
-                let closure = Value::Var {
-                    name: callee.clone(),
-                    type_args: type_args.clone(),
-                };
-                let callee_type = infer_value(
-                    &env,
-                    &Value::Var {
-                        name: callee.clone(),
-                        type_args: type_args.clone(),
-                    },
-                );
+                self.convert_expr(cont);
                 *expr = Expr::LetProj {
                     name: f.clone(),
-                    type_: callee_type,
-                    tuple: closure,
+                    type_: infer_value(callee),
+                    tuple: callee.clone(),
                     index: 0,
                     cont: box Expr::LetApp {
                         name: name.clone(),
                         type_: type_.clone(),
-                        type_args: Vec::new(),
-                        callee: f,
+                        callee: Value::Var {
+                            name: f,
+                            type_args: Vec::new(),
+                            type_: infer_value(callee),
+                        },
                         args: args.clone(),
                         cont: cont.clone(),
                     },
                 };
             }
             Expr::LetTuple {
-                name,
-                types,
-                elements,
+                name: _,
+                types: _,
+                elements: _,
                 cont,
             } => {
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: Type::Tuple(types.clone()),
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(cont);
             }
             Expr::LetProj {
-                name,
-                type_,
-                tuple,
-                index,
+                name: _,
+                type_: _,
+                tuple: _,
+                index: _,
                 cont,
             } => {
-                env.insert(
-                    name.clone(),
-                    Scheme {
-                        variables: Vec::new(),
-                        type_: type_.clone(),
-                    },
-                );
-                self.convert_expr(env, cont);
+                self.convert_expr(cont);
             }
             Expr::If {
-                cond,
-                return_type,
+                cond: _,
+                return_type: _,
                 then,
                 else_,
             } => {
-                self.convert_expr(env.clone(), then);
-                self.convert_expr(env, else_);
+                self.convert_expr(then);
+                self.convert_expr(else_);
             }
         }
     }
 
-    fn convert_decl<'src>(&self, mut env: Env<'src>, decl: &mut FunDecl<'src>) {
-        decl.params.iter().for_each(|param| {
-            env.insert(
-                param.name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: param.type_.clone(),
-                },
-            );
-        });
-        self.convert_expr(env, &mut decl.body);
+    fn convert_decl<'src>(&self, decl: &mut FunDecl<'src>) {
+        self.convert_expr(&mut decl.body);
     }
 
     pub fn convert_module<'src>(&self, module: &mut Module<'src>) {
-        let env = im::hashmap::HashMap::from_iter(module.functions.values().map(|decl| {
-            let type_ = if decl.params.is_empty() {
-                decl.return_type.clone()
-            } else {
-                Type::Func(
-                    decl.params
-                        .iter()
-                        .map(|param| param.type_.clone())
-                        .collect(),
-                    box decl.return_type.clone(),
-                )
-            };
-            (
-                decl.name.to_owned(),
-                Scheme {
-                    variables: decl.type_params.clone(),
-                    type_,
-                },
-            )
-        }));
         module
             .functions
             .values_mut()
-            .for_each(|decl| self.convert_decl(env.clone(), decl));
+            .for_each(|decl| self.convert_decl(decl));
     }
 }
 
-fn specialize_type<'src>(subst: &HashMap<String, Type<'src>>, type_: &Type<'src>) -> Type<'src> {
-    use Type::*;
-    match type_ {
-        Name { name } => Name { name },
-        QVar(name) => match subst.get(name) {
-            Some(type_) => type_.clone(),
-            None => QVar(name.clone()),
-        },
-        Func(parameter_types, box return_type) => {
-            let parameter_types = parameter_types
-                .iter()
-                .map(|parameter_type| specialize_type(subst, parameter_type))
-                .collect();
-            let return_type = specialize_type(subst, return_type);
-            Func(parameter_types, box return_type)
-        }
-        Tuple(element_types) => Tuple(
-            element_types
-                .iter()
-                .map(|element_type| specialize_type(subst, element_type))
-                .collect(),
-        ),
-        Int => Int,
-        Bool => Bool,
-    }
-}
-
-fn specialize<'src>(scheme: &Scheme<'src>, type_args: &[Type<'src>]) -> Type<'src> {
-    let Scheme { variables, type_ } = scheme;
-    let subst = variables
-        .iter()
-        .cloned()
-        .zip(type_args.iter().cloned())
-        .collect();
-    specialize_type(&subst, type_)
-}
-
-fn infer_value<'src>(env: &Env<'src>, value: &Value<'src>) -> Type<'src> {
+fn infer_value<'src>(value: &Value<'src>) -> Type<'src> {
     match value {
-        Value::Var { name, type_args } => {
-            let scheme = env
-                .get(name)
-                .unwrap_or_else(|| panic!("internal error: undefined variable {name}"));
-            specialize(scheme, type_args)
-        }
+        Value::Var { type_, .. } => type_.clone(),
         Value::Lit(Literal::Int(_)) => Type::Int,
         Value::Lit(Literal::Bool(_)) => Type::Bool,
     }
 }
 
-fn free_variables_value<'src>(
-    env: Env<'src>,
-    fvs: &mut HashMap<String, Type<'src>>,
-    value: &Value<'src>,
-) {
+fn free_variables_value<'src>(fvs: &mut HashMap<String, Type<'src>>, value: &Value<'src>) {
     match value {
-        Value::Var { name, type_args } => {
-            if let Some(scheme) = env.get(name) {
-                fvs.insert(name.clone(), specialize(scheme, type_args.as_ref()));
-            } else {
-                panic!("internal error: undefined variable {name}");
-            }
+        Value::Var { name, type_, .. } => {
+            fvs.insert(name.clone(), type_.clone());
         }
         Value::Lit(_) => {}
     }
 }
 
-// TODO: use immutable hashmap for fvs or use unique names
-fn free_variables_expr<'src>(
-    mut env: Env<'src>,
-    fvs: &mut HashMap<String, Type<'src>>,
-    expr: &Expr<'src>,
-) {
+fn free_variables_expr<'src>(fvs: &mut HashMap<String, Type<'src>>, expr: &Expr<'src>) {
     match expr {
-        Expr::Halt { value } => free_variables_value(env, fvs, value),
-        Expr::Jump { name, args } => {
-            args.iter()
-                .for_each(|arg| free_variables_value(env.clone(), fvs, arg));
-            if let Some(Scheme {
-                type_: Type::Func(_, box return_type),
-                ..
-            }) = env.get(name)
-            {
-                fvs.insert(name.clone(), return_type.clone());
-            } else {
-                panic!("internal error: invalid join point");
-            }
+        Expr::Halt { value } => free_variables_value(fvs, value),
+        Expr::Jump {
+            name,
+            args,
+            return_type,
+        } => {
+            args.iter().for_each(|arg| free_variables_value(fvs, arg));
+            fvs.insert(name.clone(), return_type.clone());
         }
         Expr::LetJoin {
             name,
             params,
-            return_type,
+            return_type: _,
             body,
             cont,
         } => {
-            let body_env = {
-                let mut env = env.clone();
-                params.iter().for_each(|param| {
-                    env.insert(
-                        param.name.clone(),
-                        Scheme {
-                            variables: Vec::new(),
-                            type_: param.type_.clone(),
-                        },
-                    );
-                });
-                env
-            };
-            free_variables_expr(body_env, fvs, body);
-            let join_type = if params.is_empty() {
-                return_type.clone()
-            } else {
-                Type::Func(
-                    params.iter().map(|param| param.type_.clone()).collect(),
-                    box return_type.clone(),
-                )
-            };
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: join_type,
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_expr(fvs, body);
+            free_variables_expr(fvs, cont);
             params.iter().for_each(|Binding { name, .. }| {
                 fvs.remove(name);
             });
@@ -640,40 +433,17 @@ fn free_variables_expr<'src>(
         }
         Expr::LetFun {
             name,
-            type_params,
+            type_params: _,
             params,
-            return_type,
+            return_type: _,
             body,
             cont,
         } => {
-            let body_env = {
-                let mut env = env.clone();
-                params.iter().for_each(|param| {
-                    env.insert(
-                        param.name.clone(),
-                        Scheme {
-                            variables: Vec::new(),
-                            type_: param.type_.clone(),
-                        },
-                    );
-                });
-                env
-            };
-            free_variables_expr(body_env, fvs, body);
+            free_variables_expr(fvs, body);
             params.iter().for_each(|param| {
                 fvs.remove(&param.name);
             });
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: type_params.clone(),
-                    type_: Type::Func(
-                        params.iter().map(|param| param.type_.clone()).collect(),
-                        box return_type.clone(),
-                    ),
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::LetAdd {
@@ -682,102 +452,65 @@ fn free_variables_expr<'src>(
             rhs,
             cont,
         } => {
-            free_variables_value(env.clone(), fvs, lhs);
-            free_variables_value(env.clone(), fvs, rhs);
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: Type::Int,
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_value(fvs, lhs);
+            free_variables_value(fvs, rhs);
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::LetVal {
             name,
-            type_,
+            type_: _,
             value,
             cont,
         } => {
-            free_variables_value(env.clone(), fvs, value);
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: type_.clone(),
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_value(fvs, value);
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::LetApp {
             name,
-            type_,
+            type_: _,
             callee,
-            type_args,
             args,
             cont,
         } => {
-            fvs.insert(callee.clone(), type_.clone());
-            args.iter()
-                .for_each(|arg| free_variables_value(env.clone(), fvs, arg));
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: type_.clone(),
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_value(fvs, callee);
+            args.iter().for_each(|arg| free_variables_value(fvs, arg));
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::LetTuple {
             name,
-            types,
+            types: _,
             elements,
             cont,
         } => {
             elements
                 .iter()
-                .for_each(|element| free_variables_value(env.clone(), fvs, element));
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: Type::Tuple(types.clone()),
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+                .for_each(|element| free_variables_value(fvs, element));
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::LetProj {
             name,
-            type_,
+            type_: _,
             tuple,
-            index,
+            index: _,
             cont,
         } => {
-            free_variables_value(env.clone(), fvs, tuple);
-            env.insert(
-                name.clone(),
-                Scheme {
-                    variables: Vec::new(),
-                    type_: type_.clone(),
-                },
-            );
-            free_variables_expr(env, fvs, cont);
+            free_variables_value(fvs, tuple);
+            free_variables_expr(fvs, cont);
             fvs.remove(name);
         }
         Expr::If {
             cond,
-            return_type,
+            return_type: _,
             then,
             else_,
         } => {
-            free_variables_value(env.clone(), fvs, cond);
-            free_variables_expr(env.clone(), fvs, then);
-            free_variables_expr(env, fvs, else_);
+            free_variables_value(fvs, cond);
+            free_variables_expr(fvs, then);
+            free_variables_expr(fvs, else_);
         }
     }
 }

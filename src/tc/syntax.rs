@@ -58,6 +58,7 @@ pub enum Expr<'src> {
     Var {
         name: &'src str,
         type_args: Vec<Type<'src>>,
+        type_: Type<'src>,
     },
     Abs {
         params: Vec<Binding<'src>>,
@@ -203,7 +204,7 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
     fn pretty_prec(self, prec: Prec, allocator: &'a DocAllocator<'a>) -> DocBuilder<'a> {
         match self {
             Expr::Lit(literal) => literal.pretty_prec(0, allocator),
-            Expr::Var { name, type_args } => {
+            Expr::Var { name, type_args, .. } => {
                 let result = allocator.text(name.to_owned());
                 if !type_args.is_empty() {
                     result.append(

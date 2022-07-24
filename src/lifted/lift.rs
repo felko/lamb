@@ -31,7 +31,7 @@ impl<'src> Lifter<'src> {
     fn lift_expr(&mut self, expr: anf::Expr<'src>) -> lifted::Expr<'src> {
         match expr {
             anf::Expr::Halt { value } => lifted::Expr::Halt { value },
-            anf::Expr::Jump { name, args } => lifted::Expr::Jump { name, args },
+            anf::Expr::Jump { name, args, return_type } => lifted::Expr::Jump { name, args, return_type },
             anf::Expr::LetJoin {
                 name,
                 params,
@@ -86,14 +86,12 @@ impl<'src> Lifter<'src> {
                 name,
                 type_,
                 callee,
-                type_args,
                 args,
                 box cont,
             } => lifted::Expr::LetApp {
                 name,
                 type_,
                 callee,
-                type_args,
                 args,
                 cont: box self.lift_expr(cont),
             },

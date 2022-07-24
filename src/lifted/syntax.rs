@@ -35,6 +35,7 @@ pub enum Expr<'src> {
     Jump {
         name: String,
         args: Vec<Value<'src>>,
+        return_type: Type<'src>,
     },
     LetAdd {
         name: String,
@@ -51,8 +52,7 @@ pub enum Expr<'src> {
     LetApp {
         name: String,
         type_: Type<'src>,
-        callee: String,
-        type_args: Vec<Type<'src>>,
+        callee: Value<'src>,
         args: Vec<Value<'src>>,
         cont: Box<Expr<'src>>,
     },
@@ -184,7 +184,11 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 .annotate(ColorSpec::new().set_bold(true).clone())
                 .append(allocator.space())
                 .append(value.pretty_prec(0, allocator)),
-            Expr::Jump { name, args } => allocator
+            Expr::Jump {
+                name,
+                args,
+                return_type,
+            } => allocator
                 .text("jump")
                 .annotate(ColorSpec::new().set_bold(true).clone())
                 .append(allocator.space())
@@ -196,7 +200,15 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                             ", ",
                         )
                         .parens(),
-                ),
+                )
+                .append(allocator.space())
+                .append(
+                    allocator
+                        .text("returns")
+                        .annotate(ColorSpec::new().set_bold(true).clone()),
+                )
+                .append(allocator.space())
+                .append(return_type.pretty_prec(0, allocator)),
             Expr::LetAdd {
                 name,
                 lhs,
@@ -241,49 +253,31 @@ impl<'a, 'src> PrettyPrec<'a> for Expr<'src> {
                 name,
                 type_,
                 callee,
-                type_args,
                 args,
                 cont,
-            } => {
-                let mut result = allocator
-                    .text("let")
-                    .annotate(ColorSpec::new().set_bold(true).clone())
-                    .append(allocator.space())
-                    .append(allocator.text(name))
-                    .append(allocator.space())
-                    .append(":")
-                    .append(allocator.space())
-                    .append(type_.pretty_prec(0, allocator))
-                    .append(allocator.space())
-                    .append("=")
-                    .append(allocator.space())
-                    .append(callee);
-
-                if !type_args.is_empty() {
-                    result = result.append(allocator.space()).append(
-                        allocator
-                            .intersperse(
-                                type_args
-                                    .iter()
-                                    .map(|type_arg| type_arg.clone().pretty_prec(0, allocator)),
-                                ", ",
-                            )
-                            .angles(),
-                    )
-                }
-
-                result
-                    .append(
-                        allocator
-                            .intersperse(
-                                args.iter().map(|arg| arg.clone().pretty_prec(0, allocator)),
-                                ", ",
-                            )
-                            .parens(),
-                    )
-                    .append(allocator.hardline())
-                    .append(cont.pretty_prec(0, allocator))
-            }
+            } => allocator
+                .text("let")
+                .annotate(ColorSpec::new().set_bold(true).clone())
+                .append(allocator.space())
+                .append(allocator.text(name))
+                .append(allocator.space())
+                .append(":")
+                .append(allocator.space())
+                .append(type_.pretty_prec(0, allocator))
+                .append(allocator.space())
+                .append("=")
+                .append(allocator.space())
+                .append(callee.pretty_prec(0, allocator))
+                .append(
+                    allocator
+                        .intersperse(
+                            args.iter().map(|arg| arg.clone().pretty_prec(0, allocator)),
+                            ", ",
+                        )
+                        .parens(),
+                )
+                .append(allocator.hardline())
+                .append(cont.pretty_prec(0, allocator)),
             Expr::LetTuple {
                 name,
                 types,
